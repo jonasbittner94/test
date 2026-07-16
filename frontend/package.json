@@ -1,0 +1,39 @@
+{
+  "name": "my-next-a",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.0",
+    "bootstrap": "^5.3.8",
+    "leva": "^0.9.34",
+    "next": "16.1.6",
+    "occt-import-js": "^0.0.23",
+    "react": "19.2.3",
+    "react-bootstrap": "^2.10.10",
+    "react-dom": "19.2.3",
+    "react-router-dom": "^7.18.1",
+    "three": "^0.182.0",
+    "three-mesh-bvh": "^0.9.10"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "es-abstract": "1.24.0"
+  }
+}

@@ -1,0 +1,9 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# App-generierte Dateien
+storage/uploads/
+storage/converted/
+timings_*.json
