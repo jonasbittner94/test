@@ -52,7 +52,6 @@ class PackingRequest(BaseModel):
     item_width: float
     item_height: float
     quantity: int
-    overlap: Optional[OverlapRequest] = None
     scaledLength: float
     pattern: Optional[PatternRequest] = None
     mesh_volume:Optional[float] = None
@@ -77,31 +76,22 @@ def get_top_20_packing_results(data: PackingRequest):
         data.quantity,
         bulk=False,
         mesh_volume=data.mesh_volume
-
     )
-
-    overlap = {
-        "x": data.overlap.x if data.overlap else 0,
-        "y": data.overlap.y if data.overlap else 0,
-        "z": data.overlap.z if data.overlap else 0,
-    }
-
 
     optimizer = PackingOptimizer(
         item=item,
         quantity=data.quantity,
         boxes=boxes,
-        overlap=overlap,
         pattern=pattern,
         mesh_volume=data.mesh_volume
     )
 
-    results = optimizer.find_top_boxes(limit=100)
+    results = optimizer.find_top_boxes(limit=20)
 
     if not results:
         return {"message": "Keine passende Verpackung gefunden", "results": []}
 
     return {
-        "message": "Passende Verpackungen gefunden",
+        "message": "Folgende Verpackungen kommen für Ihre Konfiguration in Frage:",
         "results": results,
     }

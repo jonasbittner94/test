@@ -10,17 +10,12 @@ class PackingOptimizer:
     item: Item
     quantity: int
     boxes: List[Box]
-    overlap: Optional[Dict[str, float]] = None
     pattern: Optional[Dict] = None
     mesh_volume: Optional[float] = None
 
     _eps: float = field(default=1e-9, init=False)
 
-    def __post_init__(self):
-        if self.overlap is None:
-            self.overlap = {"x": 0.0, "y": 0.0, "z": 0.0}
 
-            
     #
     # Geometrie- & Orientierungs-Helfer
     #
