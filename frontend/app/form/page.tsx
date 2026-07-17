@@ -126,22 +126,15 @@ export default function FormPage() {
           formData.scalable && Number(formData.scaled_length) > 0
             ? Number(formData.scaled_length)
             : uploadedItem.length,
+        // Gewicht in Gramm -- das Backend leitet die Masse (kg) daraus ab
+        weight: Number(formData.itemWeight),
       };
 
       const payload = {
         item: item,
         item_quantity: Number(formData.itemQuantity),
-        boxes: [
-          {
-            name: "Box 1",
-            length: 200,
-            width: 200,
-            height: 200,
-            capacityLHM: 0,
-          },
-        ],
+        boxes:[],
         stl_file: uploadedStlFile,
-        item_mass: Number(formData.itemWeight) / 1000,
         mesh_scale: [0.001, 0.001, 0.001],
       };
 

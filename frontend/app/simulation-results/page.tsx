@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type SimulationBox = {
   name: string;
@@ -18,6 +18,7 @@ type SimulationResult = {
   total_article_volume_cm3: number;
   used_box_volume_cm3: number;
   packing_density_percent: number;
+  articles_per_lhm?: number;
 };
 
 type SimulationResponse = {
@@ -25,8 +26,11 @@ type SimulationResponse = {
   results: SimulationResult[];
 };
 
+type SortMode = "filling" | "lhm";
+
 export default function PackingResultsPage() {
   const [data, setData] = useState<SimulationResponse | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("filling");
 
   useEffect(() => {
     const raw = localStorage.getItem("simulationResult");
@@ -41,7 +45,26 @@ export default function PackingResultsPage() {
     }
   }, []);
 
-  const results = data?.results ?? [];
+  // Sortierung: niedrigste relative Fuellhoehe zuerst (meiste Reserve)
+  // bzw. hoechste Artikel pro LHM zuerst
+  const results = useMemo(() => {
+    const list = [...(data?.results ?? [])];
+
+    if (sortMode === "lhm") {
+      list.sort(
+        (a, b) =>
+          (b.articles_per_lhm ?? 0) - (a.articles_per_lhm ?? 0) ||
+          a.relative_filling_height_percent - b.relative_filling_height_percent
+      );
+    } else {
+      list.sort(
+        (a, b) =>
+          a.relative_filling_height_percent - b.relative_filling_height_percent
+      );
+    }
+
+    return list;
+  }, [data, sortMode]);
 
   if (!data || results.length === 0) {
     return (
@@ -61,6 +84,26 @@ export default function PackingResultsPage() {
           Angezeigt werden {results.length} Ergebnis
           {results.length === 1 ? "" : "se"}.
         </p>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <label htmlFor="sortMode" style={{ fontWeight: 600 }}>
+          Sortieren nach:
+        </label>
+        <select
+          id="sortMode"
+          value={sortMode}
+          onChange={(e) => setSortMode(e.target.value as SortMode)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: "8px",
+            border: "1px solid #cbd5e1",
+            background: "#ffffff",
+          }}
+        >
+          <option value="filling">Füllhöhe (niedrigste zuerst)</option>
+          <option value="lhm">Artikel pro LHM (höchste zuerst)</option>
+        </select>
       </div>
 
       <section
@@ -94,6 +137,13 @@ export default function PackingResultsPage() {
               <strong>LHM-Kapazität:</strong> {result.box.capacityLHM}
               {" Verpackungen pro LHM"}
             </div>
+
+            {result.articles_per_lhm !== undefined && (
+              <div>
+                <strong>Artikel pro LHM:</strong>{" "}
+                {Math.round(result.articles_per_lhm)}
+              </div>
+            )}
 
             <div>
               <strong>Füllhöhe:</strong> {result.filling_height_mm.toFixed(2)}{" "}

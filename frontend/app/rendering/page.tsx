@@ -197,6 +197,7 @@ function RenderingContent() {
           item_length: itemLength,
           item_width: itemWidth,
           item_height: itemHeight,
+          item_weight: Number(localStorage.getItem("itemWeight") ?? "0"),
           file_url: activeUrl,
           quantity: itemQuantity,
           scaledLength: scaled_length,
