@@ -23,10 +23,49 @@ class PackingOptimizer:
     def _scale_dimensions(self, dimensions) -> Tuple[float, float, float]:
         x, y, z = dimensions
         return (x, y, z)
+    
+    #Füllung des Restraumes naben dem Packmuster
+    def _fill_residual(self, region, orientations):
+        #Füllung des Restraumes naben dem Packmuster
+        x0, y0, z0, rx, ry, rz = region
 
-    def volume(self) -> float:
-        return self.item.volume
+        best = None
+        for orientation in orientations:
+            L, W, H = orientation["dimensions"]
+            nx = int((rx + self._eps) // L)
+            ny = int((ry + self._eps) // W)
+            nz = int((rz + self._eps) // H)
+            count = nx * ny * nz
+            if count > 0 and (best is None or count > best["count"]):
+                best = {
+                    "count": count,
+                    "dims": (L, W, H),
+                    "grid": (nx, ny, nz),
+                    "rotation_key": orientation["rotation_key"],
+                }
 
+        if best is None:
+            return [], 0
+
+        L, W, H = best["dims"]
+        nx, ny, nz = best["grid"]
+        positions = [
+            {
+                "x": x0 + i * L + L / 2,
+                "y": y0 + j * W + W / 2,
+                "z": z0 + k * H + H / 2,
+                "orientation": (L, W, H),
+                "rotation_key": best["rotation_key"],
+                "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "pattern_index": None,
+            }
+            for i in range(nx)
+            for j in range(ny)
+            for k in range(nz)
+        ]
+        return positions, best["count"]
+
+    #ausgabe einer Liste mit allen einzigartigen Orientierungen des Artikels
     def _unique_orientations(self):
         unique = []
         seen = set()
@@ -118,14 +157,9 @@ class PackingOptimizer:
             "normArtVol":article_volume,
         }
 
+    #Abstand zwischen den Artikeln bestimmen, der als ein Schritt für das Packmuster genutzt wird
+        #Ist eine Lücke zwischen den Artikeln, wir der Abstand auf die Kantenlänge der Achse gesetzt
     def _pattern_step(self, elements, key: str, full_dim: float) -> float:
-        """Rasterschritt (Mitte-zu-Mitte) einer Achse aus der 3D-Anordnung ableiten.
-
-        Der Schritt ist der kleinste Abstand benachbarter Artikel entlang der Achse.
-        Ordnet der Nutzer die Artikel enger als ihre Bounding Box an (Abstand < Kante),
-        ist der Schritt < full_dim -> bewusste Ueberlappung, die dichter gepackt wird.
-        Groessere Luecken werden auf die Kantenlaenge begrenzt (dicht, kein Ueberlappen).
-        """
         coords = sorted({round(element["position"][key], 6) for element in elements})
         if len(coords) < 2:
             return full_dim
@@ -134,29 +168,20 @@ class PackingOptimizer:
             return full_dim
         return min(min(gaps), full_dim)
 
-    #
-    # Packmuster-Packing (Greedy Extreme Points + Dual-Dimension-Overlap)
-    #
+    #Prüfung ob eine Kollision mit einem gepackten Artikel entsteht ( > erlaubtes Overlap)           
     def _fits_overlap(self, point, full_dims, eff_dims, box: Box, placements) -> bool:
-        """Passt der Artikel am Extreme Point?
-
-        Box-Grenze wird mit der VOLLEN Kante geprueft (kein Artikel ragt aus der
-        Box). Die Kollision gegen bereits platzierte Artikel wird mit der
-        REDUZIERTEN (effektiven) Kante geprueft -> die reduzierten Boxen duerfen
-        sich nicht ueberschneiden, wodurch sich die echten (vollen) Artikel genau
-        um (Kante - effektiv) ueberlappen = die gewollte Verschachtelung.
-        """
         px, py, pz = point
         L, W, H = full_dims
         eL, eW, eH = eff_dims
 
+        #Prüfung mit vollen Dimensionen ob die Boxgrenze überschritten wird
         if (
             px + L > box.length + self._eps
             or py + W > box.width + self._eps
             or pz + H > box.height + self._eps
         ):
             return False
-
+        #Prüfung mit reduzierten Dimensionen ob der Artikel mit einem bereits platzierten Artikel kollidiert 
         for placed in placements:
             ox = min(px + eL, placed["x0"] + placed["length"]) - max(px, placed["x0"])
             oy = min(py + eW, placed["y0"] + placed["width"]) - max(py, placed["y0"])
@@ -165,14 +190,14 @@ class PackingOptimizer:
                 return False
 
         return True
-
+    
+    #Echte Packlogik
     def _pack_pattern(self, box: Box):
         pattern_data = self._get_pattern_data()
         if not pattern_data:
             return None
 
-        # Rasterschritte (Ueberlappung) im Original-Frame: x=Laenge, y=Breite, z=Hoehe.
-        # Aus der 3D-Anordnung abgeleitet; Abstand < Kante => bewusste Ueberlappung.
+
         elements = pattern_data["elements"]
         dim0 = {"x": self.item.length, "y": self.item.width, "z": self.item.height}
         step0 = {
@@ -183,12 +208,10 @@ class PackingOptimizer:
 
         if any(d <= self._eps for d in dim0.values()):
             return None
+        
+        unique_orients = self._unique_orientations()
 
-        # Fuer jede Box die beste Orientierung suchen: die meisten Artikel auf der
-        # x,z-Ebene (Grundflaeche nx*nz), bei Gleichstand groesste Gesamtkapazitaet.
-        # Die Ueberlappung (step) dreht mit dem Artikel mit (gleiche Achs-Permutation
-        # wie die Kantenmasse). rotation_key wird ausgegeben, damit das Frontend die
-        # gewaehlte Drehung darstellt.
+        # Fuer jede Box die beste Orientierung suchen (meiste Artikel aus x,z Ebene)
         best = None
         for orientation in self.item.orientations():
             a, b, c = orientation["rotation_key"]
@@ -209,18 +232,39 @@ class PackingOptimizer:
                 continue
 
             capacity = nx * ny * nz
-            if capacity < self.quantity:
-                # nur Orientierungen beruecksichtigen, welche die Menge fassen
+
+            # Vom Hauptgrid belegter Quader
+            used_x = (nx - 1) * sx + L
+            used_y = (ny - 1) * sy + W
+            used_z = (nz - 1) * sz + H
+
+            # Drei ueberlappungsfreie Restquader: Streifen in x, y und z
+            regions = [
+                (used_x, 0.0, 0.0, box.length - used_x, box.width, box.height),
+                (0.0, used_y, 0.0, used_x, box.width - used_y, box.height),
+                (0.0, 0.0, used_z, used_x, used_y, box.height - used_z),
+            ]
+            residual_positions = []
+            residual_count = 0
+            for region in regions:
+                positions_r, count_r = self._fill_residual(region, unique_orients)
+                residual_positions += positions_r
+                residual_count += count_r
+
+            total_capacity = capacity + residual_count
+            if total_capacity < self.quantity:
+                # Menge passt auch mit Restraum nicht -> Orientierung verwerfen
                 continue
 
-            score = (nx * nz, capacity)  # 1. x,z-Ebene, 2. Gesamtkapazitaet
+            score = (capacity, total_capacity)
             if best is None or score > best["score"]:
                 best = {
                     "rotation_key": orientation["rotation_key"],
                     "dims": (L, W, H),
                     "steps": (sx, sy, sz),
                     "grid": (nx, ny, nz),
-                    "capacity": capacity,
+                    "capacity": total_capacity,
+                    "residual_positions": residual_positions,
                     "score": score,
                 }
 
@@ -236,11 +280,8 @@ class PackingOptimizer:
         capacity = best["capacity"]
         rotation_key = best["rotation_key"]
 
-        # Greedy Extreme-Point-Packing mit Dual-Dimension.
-        #   Kollision/EP-Erzeugung -> reduzierte (effektive) Box  => Verschachtelung
-        #   Box-Grenze/Rendering   -> volle Box                   => nichts ragt raus
-        # Extreme Points werden nach (y, z, x) abgearbeitet: erst die x,z-Ebene
-        # fuellen, dann entlang y (Breite) stapeln.
+        # Greedy Extreme-Point-Packing
+        # abarbeitung nach y,z,x (Erst Ebene, dann höhe)
         positions = []
         placements = []
         extreme_points = {(0.0, 0.0, 0.0)}
@@ -248,9 +289,9 @@ class PackingOptimizer:
         while len(positions) < self.quantity and extreme_points:
             placed_in_round = False
             for point in sorted(extreme_points, key=lambda p: (p[1], p[2], p[0])):
-                if self._inside_any(point, placements):
-                    extreme_points.discard(point)
-                    continue
+                extreme_points.discard(point)
+        
+                # 2. Prüfen, ob er überhaupt in die Box passt und nicht kollidiert
                 if not self._fits_overlap(point, full_dims, eff_dims, box, placements):
                     continue
 
@@ -286,6 +327,11 @@ class PackingOptimizer:
 
             if not placed_in_round:
                 break
+
+        for residual_position in best["residual_positions"]:
+            if len(positions) >= self.quantity:
+                break
+            positions.append(residual_position)
 
         if len(positions) < self.quantity:
             return None
@@ -329,16 +375,14 @@ class PackingOptimizer:
                 "nz": nz,
             },
             "capacity": capacity,
-            "capacityLHM": capacity * box.capacityLHM,
+            "capacityLHM": self.quantity * box.capacityLHM,
             "fill_rate": fill_rate,
             "empty_volume": empty_volume,
             "used_volume": used_volume,
             "positions": positions,
         }
     
-    # ==================================================================
     # Box-Auswahl & Ranking
-    # ==================================================================
     def evaluate_box(self, box: Box):
         if self.pattern:
             return self._pack_pattern(box)
@@ -363,11 +407,8 @@ class PackingOptimizer:
         if not candidates:
             return []
 
-        candidates.sort(
-            key=lambda r: (
-                -r["fill_rate"],
-                r["fill_rate"],
-            )
-        )
+        candidates.sort(key=lambda r: r["box_dimensions"]["length"]
+                        * r["box_dimensions"]["width"]
+                        * r["box_dimensions"]["height"])
 
         return candidates[:limit]

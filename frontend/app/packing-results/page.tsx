@@ -94,10 +94,13 @@ function BoxPreview({
   );
 }
 
+type SortMode = "size" | "lhm";
+
 export default function PackingResultsPage() {
   const [data, setData] = useState<PackingResponse | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("size");
   useEffect(() => {
     const raw = localStorage.getItem("packingResults");
     const storedModelUrl = localStorage.getItem("convertedStlUrl");
@@ -116,11 +119,35 @@ export default function PackingResultsPage() {
     }
   }, []);
 
-  const results = data?.results ?? [];
+  // Sortierung: kleinste Verpackung zuerst bzw. hoechste LHM-Kapazitaet zuerst
+  const results = useMemo(() => {
+    const list = [...(data?.results ?? [])];
+
+    const boxVolume = (result: PackingResult) =>
+      result.box_dimensions.length *
+      result.box_dimensions.width *
+      result.box_dimensions.height;
+
+    if (sortMode === "lhm") {
+      list.sort(
+        (a, b) => b.capacityLHM - a.capacityLHM || boxVolume(a) - boxVolume(b)
+      );
+    } else {
+      list.sort((a, b) => boxVolume(a) - boxVolume(b));
+    }
+
+    return list;
+  }, [data, sortMode]);
+
   const current = useMemo(
     () => results[activeIndex] ?? null,
     [results, activeIndex]
   );
+
+  const handleSortChange = (mode: SortMode) => {
+    setSortMode(mode);
+    setActiveIndex(0);
+  };
 
   const handlePrev = () => {
     setActiveIndex((prev) => Math.max(prev - 1, 0));
@@ -173,6 +200,27 @@ export default function PackingResultsPage() {
         >
           Weiter
         </Button>
+
+        <label
+          htmlFor="sortMode"
+          style={{ marginLeft: "auto", fontWeight: 600 }}
+        >
+          Sortieren nach:
+        </label>
+        <select
+          id="sortMode"
+          value={sortMode}
+          onChange={(e) => handleSortChange(e.target.value as SortMode)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: "8px",
+            border: "1px solid #cbd5e1",
+            background: "#ffffff",
+          }}
+        >
+          <option value="size">Verpackungsgröße (kleinste zuerst)</option>
+          <option value="lhm">LHM-Kapazität (höchste zuerst)</option>
+        </select>
       </div>
 
       <div

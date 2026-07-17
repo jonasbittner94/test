@@ -2,9 +2,10 @@
 import pybullet_data
 import random
 import math
+import time
 from concurrent.futures import ProcessPoolExecutor
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional
 from app.packing.models import Item, Box
 from dataclasses import dataclass, replace
 
@@ -13,26 +14,43 @@ class SimulationConfig:
     item: Item
     item_quantity: int
     boxes: List[Box]
-
+    # Wird im Backend aus der STL berechnet (siehe simulation-Route), nicht vom Frontend geschickt.
+    mesh_volume: float = 0.0
     stl_file: str = "ausgabe.stl"
+    # VHACD-Zerlegung der STL (konvexe Teile) fuer formtreue Kollision konkaver
+    # Artikel; wird in der Route erzeugt. None -> Fallback auf stl_file.
+    collision_file: Optional[str] = None
     item_mass: float = 0.006
-
     mesh_scale: tuple[float, float, float] = (0.001, 0.001, 0.001)
-    
     wall_thickness: float = 0.005
-
     # Performance / Genauigkeit
     use_box_collision: bool = True
     fixed_time_step: float = 1 / 240
-    solver_iterations: int = 80
-    max_simulation_steps: int = 1200
-    min_simulation_steps: int = 120
+    solver_iterations: int = 40
+    # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
+    max_simulation_steps: int = 600
+    min_simulation_steps: int = 60
     settle_check_interval: int = 20
     linear_sleep_threshold: float = 0.015
     angular_sleep_threshold: float = 0.15
+    # Zusaetzliches Abbruchkriterium: Fuellhoehe hat sich zwischen zwei Checks
+    # um weniger als diesen Wert geaendert -> Haufen steht, auch wenn einzelne
+    # Artikel noch minimal zittern.
+    height_convergence_mm: float = 0.5
+    # Liegt die Fuellhoehe nach Phase 1 ueber Boxhoehe * Faktor, wird die
+    # Verdichtung uebersprungen: Ruetteln holt nur wenige Prozent, die Box
+    # kann nicht mehr passen.
+    early_abort_factor: float = 1.3
+    # Ruettel-/Verdichtungsphase (laterale Impulse bei erhoehter Gravitation)
+    settle_duration: float = 0.25
+    settle_force_scale: float = 0.04
+    settle_frequency: float = 10.0
+    collision_margin: float = 0.0002
+    fit_height_tolerance: float = 0.02
     random_seed: Optional[int] = 42
     verbose: bool = False
-
+    runs_per_box: int = 1
+    use_gui: bool = False
     # Parallelisierung
     parallel_simulations: bool = True
     max_workers: Optional[int] = None
@@ -49,20 +67,42 @@ class SimulationConfig:
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
         config, box, box_index = args
 
-        random_seed = (
-            None
-            if config.random_seed is None
-            else config.random_seed + box_index
-        )
+        n_runs = max(1, config.runs_per_box)
+        runs: list[dict] = []
 
-        single_box_config = replace(
-            config,
-            boxes=[box],
-            random_seed=random_seed,
-        )
+        for run_index in range(n_runs):
+            random_seed = (
+                None
+                if config.random_seed is None
+                else config.random_seed + box_index * 1000 + run_index
+            )
 
-        simulation = PackagingSimulation(single_box_config)
-        result = simulation._run_single()
+            single_box_config = replace(
+                config,
+                boxes=[box],
+                random_seed=random_seed,
+            )
+
+            simulation = PackagingSimulation(single_box_config)
+            runs.append(simulation._run_single())
+
+        # Numerische Kennzahlen ueber die Laeufe mitteln; fits_in_box wird aus
+        # der gemittelten Fuellhoehe neu bestimmt (nicht selbst gemittelt).
+        result = {
+            key: sum(run[key] for run in runs) / n_runs
+            for key in runs[0]
+            if key != "fits_in_box"
+        }
+
+        mean_height = result["filling_height_mm"]
+        heights = [run["filling_height_mm"] for run in runs]
+        variance = sum((h - mean_height) ** 2 for h in heights) / n_runs
+
+        result["fits_in_box"] = mean_height <= box.height * (
+            1 + config.fit_height_tolerance
+        )
+        result["filling_height_std_mm"] = variance**0.5
+        result["runs_per_box"] = n_runs
 
         result["box"] = {
             "name": box.name,
@@ -75,14 +115,18 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
         return result
 
 def _get_best_valid_results(simulation_results: list[dict], limit: int = 5) -> list[dict]:
+    # Valide = die Schuettung passt komplett in die Box (Fuellhoehe <= Boxhoehe).
+    # packing_density taugt nicht als Kriterium: sie bleibt auch bei
+    # ueberlaufenden Boxen unter 100 %.
     valid_results = [
         result
         for result in simulation_results
-        if result.get("packing_density_percent", 0) <= 100
+        if result.get("fits_in_box", False)
     ]
 
+    # Beste Box = hoechste Auslastung des Gesamtvolumens (kleinste passende Box)
     valid_results.sort(
-        key=lambda result: result.get("packing_density_percent", 0),
+        key=lambda result: result.get("box_utilization_percent", 0),
         reverse=True,
     )
 
@@ -131,7 +175,7 @@ class PackagingSimulation:
             ]
 
             return {
-                "results": simulation_results,
+                "results": _get_best_valid_results(simulation_results, limit=5),
             }
 
         max_workers = self.config.max_workers or min(
@@ -163,16 +207,42 @@ class PackagingSimulation:
             self._simulate()
             results = self._evaluate()
 
+            if self.config.use_gui:
+                self._hold_gui_open()
+
             return results
         finally:
             self._disconnect()
+
+    def _hold_gui_open(self) -> None:
+        """Haelt das GUI-Fenster nach der Auswertung offen (schliessen = weiter)."""
+        print("\nGUI aktiv -- Fenster schliessen zum Beenden.")
+        try:
+            while p.isConnected(self.physics_client):
+                p.stepSimulation()
+                time.sleep(self.config.fixed_time_step)
+        except p.error:
+            pass  # Fenster wurde geschlossen
 
 
 
 
 
     def _connect(self) -> None:
-        self.physics_client = p.connect(p.DIRECT)
+        cfg = self.config
+
+        mode = p.GUI if cfg.use_gui else p.DIRECT
+        self.physics_client = p.connect(mode)
+
+        if cfg.use_gui:
+            # Seitenpanels ausblenden, Kamera auf die Box ausrichten
+            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+            p.resetDebugVisualizerCamera(
+                cameraDistance=2.5 * max(cfg.box_x, cfg.box_y, cfg.box_z),
+                cameraYaw=45,
+                cameraPitch=-30,
+                cameraTargetPosition=[0, 0, cfg.box_z / 2],
+            )
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.resetSimulation(physicsClientId=self.physics_client)
@@ -257,9 +327,11 @@ class PackagingSimulation:
     def _create_article_shapes(self) -> None:
         cfg = self.config
 
+        # VHACD-OBJ (konvexe Zerlegung) bevorzugen: nur damit kollidieren
+        # konkave Artikel formtreu (dynamische GEOM_MESH = konvexe Huelle).
         self.collision_shape_id = p.createCollisionShape(
             p.GEOM_MESH,
-            fileName=cfg.stl_file,
+            fileName=cfg.collision_file or cfg.stl_file,
             meshScale=cfg.mesh_scale,
         )
 
@@ -301,28 +373,99 @@ class PackagingSimulation:
                 linearDamping=0.0,
                 angularDamping=0.0,
                 restitution=0.0,
+                collisionMargin=cfg.collision_margin,
             )
 
             self.article_ids.append(body_id)
 
+    def _step(self) -> None:
+        p.stepSimulation()
+        # Im GUI-Modus auf Echtzeit bremsen, sonst ist nichts zu sehen
+        if self.config.use_gui:
+            time.sleep(self.config.fixed_time_step)
+
     def _simulate(self) -> None:
+        cfg = self.config
         print("Simuliere physikalischen Fall...")
 
-        for _ in range(200):
-            p.stepSimulation()
+        # Phase 1: freier Fall, bis alle Artikel zur Ruhe gekommen sind
+        self._step_until_settled()
+
+        # Klar uebervolle Box: Verdichtung lohnt nicht mehr (holt nur wenige
+        # Prozent), Ergebnis steht fest -> Phase 2 komplett ueberspringen
+        filling_height = self._current_max_z() - cfg.wall_thickness
+        if filling_height > cfg.box_z * cfg.early_abort_factor:
+            if cfg.verbose:
+                print("Frueh-Abbruch: Fuellhoehe weit ueber Boxhoehe")
+            return
 
         p.setGravity(0, 0, -50)
 
         self._settle_items_with_impulse(
-            duration=0.02,
-            force_scale=0.04,
-            frequency=10.0,
+            duration=cfg.settle_duration,
+            force_scale=cfg.settle_force_scale,
+            frequency=cfg.settle_frequency,
         )
 
-        for _ in range(200):
-            p.stepSimulation()
+        # Phase 2: nach den Verdichtungs-Impulsen erneut ausruhen lassen
+        self._step_until_settled()
 
         p.setGravity(0, 0, -9.81)
+
+    def _current_max_z(self) -> float:
+        """Oberkante der Schuettung ueber die AABBs aller Artikel."""
+        max_z = 0.0
+        for article_id in self.article_ids:
+            _, aabb_max = p.getAABB(article_id)
+            max_z = max(max_z, aabb_max[2])
+        return max_z
+
+    def _step_until_settled(self) -> None:
+        """Simuliert bis zur Ruhe -- oder bis die Fuellhoehe konvergiert.
+
+        Abbruch (fruehestens min_simulation_steps, Pruefung alle
+        settle_check_interval Steps), wenn entweder alle Artikel unter den
+        Sleep-Schwellen liegen ODER sich die Fuellhoehe seit dem letzten Check
+        um weniger als height_convergence_mm geaendert hat. Letzteres beendet
+        die Schleife auch dann, wenn einzelne Artikel noch minimal zittern,
+        ohne dass sich am Ergebnis (der Hoehe) etwas aendert.
+        """
+        cfg = self.config
+        last_height: float | None = None
+
+        for step in range(1, cfg.max_simulation_steps + 1):
+            self._step()
+
+            if step % cfg.settle_check_interval != 0:
+                continue
+
+            height = self._current_max_z()
+            height_converged = (
+                last_height is not None
+                and abs(height - last_height) < cfg.height_convergence_mm / 1000
+            )
+            last_height = height
+
+            if step >= cfg.min_simulation_steps and (
+                height_converged or self._all_settled()
+            ):
+                if cfg.verbose:
+                    print(f"Ruhe nach {step} Steps")
+                break
+
+    def _all_settled(self) -> bool:
+        cfg = self.config
+        linear_sq = cfg.linear_sleep_threshold**2
+
+        for article_id in self.article_ids:
+            linear, angular = p.getBaseVelocity(article_id)
+
+            if linear[0] ** 2 + linear[1] ** 2 + linear[2] ** 2 > linear_sq:
+                return False
+            if max(abs(a) for a in angular) > cfg.angular_sleep_threshold:
+                return False
+
+        return True
 
     def _settle_items_with_impulse(
         self,
@@ -348,28 +491,37 @@ class PackagingSimulation:
                     flags=p.WORLD_FRAME,
                 )
 
-            p.stepSimulation()
+            self._step()
 
     def _evaluate(self) -> dict:
         cfg = self.config
 
-        max_z = 0
+        # Tatsaechliche Oberkante ueber die AABB: gilt auch fuer gekippte/
+        # rotierte Artikel (Position + halbe Hoehe stimmt nur aufrecht).
+        filling_height = self._current_max_z() - cfg.wall_thickness
 
-        for article_id in self.article_ids:
-            position, _ = p.getBasePositionAndOrientation(article_id)
-            top_edge = position[2] + self.article_z / 2
-            max_z = max(max_z, top_edge)
-
-        filling_height = max_z - cfg.wall_thickness
-
-        single_article_volume = self.article_x * self.article_y * self.article_z
+        # Echtes Mesh-Volumen (mm^3 -> m^3) statt Bounding-Box-Quader;
+        # Fallback auf den Quader, falls kein Mesh-Volumen berechnet wurde.
+        if cfg.mesh_volume > 0:
+            single_article_volume = cfg.mesh_volume * 1e-9
+        else:
+            single_article_volume = self.article_x * self.article_y * self.article_z
         total_article_volume = cfg.item_quantity * single_article_volume
         used_box_volume = cfg.box_x * cfg.box_y * filling_height
+        box_volume = cfg.box_x * cfg.box_y * cfg.box_z
 
         packing_density = (
             total_article_volume / used_box_volume
             if used_box_volume > 0
             else 0
+        )
+
+        # Valide = Schuettung liegt (bis auf die Deckel-Toleranz) in der Box
+        fits_in_box = filling_height <= cfg.box_z * (1 + cfg.fit_height_tolerance)
+
+        # Auslastung der GESAMTEN Box (Ranking: hoch = wenig verschenkter Platz)
+        box_utilization = (
+            total_article_volume / box_volume if box_volume > 0 else 0
         )
 
         results = {
@@ -379,6 +531,8 @@ class PackagingSimulation:
             "total_article_volume_cm3": total_article_volume * 1_000_000,
             "used_box_volume_cm3": used_box_volume * 1_000_000,
             "packing_density_percent": packing_density * 100,
+            "box_utilization_percent": box_utilization * 100,
+            "fits_in_box": fits_in_box,
         }
 
         self._print_results(results)

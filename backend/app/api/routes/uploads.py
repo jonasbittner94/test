@@ -8,6 +8,8 @@ import trimesh
 from app.services.converterStpStl.converter import step_to_stl_cq
 from app.core.config import UPLOAD_DIR, CONVERTED_DIR
 
+
+
 router = APIRouter()
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -21,6 +23,7 @@ def get_item_from_stl(stl_path: Path) -> dict:
     max_bounds = bounds[1]
 
     dimensions = max_bounds - min_bounds
+
 
     return {
         "length": float(dimensions[0]),

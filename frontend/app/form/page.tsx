@@ -498,9 +498,36 @@ export default function FormPage() {
           </Collapse>
         </Form>
         <br></br>
-        <Button variant="primary" onClick={handleRender}>
-          Rendern
+        <Button variant="primary" onClick={handleRender} disabled={isSimulating}>
+          {isSimulating ? (
+            <>
+              <span
+                className="spinner-border spinner-border-sm"
+                role="status"
+                aria-hidden="true"
+                style={{ marginRight: "8px" }}
+              />
+              Simulation läuft...
+            </>
+          ) : (
+            "Rendern"
+          )}
         </Button>
+        {simulationError && (
+          <p
+            style={{
+              color: "#991b1b",
+              backgroundColor: "#fee2e2",
+              border: "1px solid #fca5a5",
+              borderRadius: "8px",
+              padding: "8px 12px",
+              marginTop: "12px",
+              fontWeight: 600,
+            }}
+          >
+            {simulationError}
+          </p>
+        )}
       </div>
     </main>
   );

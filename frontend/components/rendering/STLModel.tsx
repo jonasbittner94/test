@@ -6,68 +6,8 @@ import { STLLoader } from "three-stdlib";
 import * as THREE from "three";
 import { ConvexGeometry } from "three-stdlib"; // oder "three/examples/jsm/geometries/ConvexGeometry"
 
-function calculateEnclosedVolume(geometry: THREE.BufferGeometry): number {
-  if (!geometry || !geometry.isBufferGeometry) return 0;
 
-  // 1. Extrahiere alle Punkte aus dem Mesh
-  const positionAttr = geometry.attributes.position;
-  const points: THREE.Vector3[] = [];
-  for (let i = 0; i < positionAttr.count; i++) {
-    points.push(new THREE.Vector3().fromBufferAttribute(positionAttr, i));
-  }
 
-  try {
-    // 2. Erzeuge die konvexe Hülle (schließt alle Hohlräume und Löcher)
-    const convexGeom = new ConvexGeometry(points);
-    
-    // 3. Berechne das Volumen dieser geschlossenen Hülle mit der Standard-Pyramiden-Methode
-    const volume = calculateMeshVolume(convexGeom); // Deine bisherige Methode
-    
-    convexGeom.dispose(); // Speicher freigeben
-    return volume;
-  } catch (err) {
-    console.error("Konvexe Hülle konnte nicht berechnet werden, nutze Bounding Box:", err);
-    // Fallback auf Bounding Box Volumen
-    geometry.computeBoundingBox();
-    const size = new THREE.Vector3();
-    geometry.boundingBox?.getSize(size);
-    return size.x * size.y * size.z;
-  }
-}
-//Berechnung des genauen Volumens des Artikels
-function calculateMeshVolume(geometry: THREE.BufferGeometry): number {
-  if (!geometry || !geometry.isBufferGeometry) return 0;
-
-  const position = geometry.attributes.position;
-  const index = geometry.index;
-  let sum = 0;
-
-  const p1 = new THREE.Vector3();
-  const p2 = new THREE.Vector3();
-  const p3 = new THREE.Vector3();
-
-  function signedVolumeOfTriangle(v1: THREE.Vector3, v2: THREE.Vector3, v3: THREE.Vector3) {
-    return v1.dot(v2.cross(v3)) / 6.0;
-  }
-
-  if (index !== null) {
-    for (let i = 0; i < index.count; i += 3) {
-      p1.fromBufferAttribute(position, index.getX(i));
-      p2.fromBufferAttribute(position, index.getY(i));
-      p3.fromBufferAttribute(position, index.getZ(i));
-      sum += signedVolumeOfTriangle(p1, p2, p3);
-    }
-  } else {
-    for (let i = 0; i < position.count; i += 3) {
-      p1.fromBufferAttribute(position, i);
-      p2.fromBufferAttribute(position, i + 1);
-      p3.fromBufferAttribute(position, i + 2);
-      sum += signedVolumeOfTriangle(p1, p2, p3);
-    }
-  }
-  console.log(Math.abs(sum))
-  return Math.abs(sum);
-}
 
 
 export type StlModelProps = {
@@ -139,13 +79,7 @@ export function StlModel({
           setBoxSize(baseBoxSize);
           onBoundingBoxChange?.(scaledBoundingBox);
 
-          //berechnung des Artikel Volumens
-          const baseVolume = calculateEnclosedVolume(geom);
-
-          //Skallierung des Volumens, bei Skallierung der X-Achse
-          const finalVolume = baseVolume * factor * 1 * 1;
-          
-          onVolumeChange?.(finalVolume);
+         
         
         }
 
@@ -158,7 +92,7 @@ export function StlModel({
     return () => {
       mounted = false;
     };
-  }, [url, scaled_length, onBoundingBoxChange,onVolumeChange]);
+  }, [url, scaled_length, onBoundingBoxChange]);
 
   if (!geometry) return null;
 

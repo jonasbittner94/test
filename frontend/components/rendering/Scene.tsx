@@ -31,7 +31,6 @@ export type SceneProps = {
   receiveShadow?: boolean;
   scaled_length?: number;
   onBoundingBoxChange?: (boundingBox: [number, number, number]) => void;
-  onVolumeChange?: (volume: number) => void; // <--- 1. TYP KORRIGIERT UND OPTIONAL GEMACHT
   resetKey?: number;
   onTransformsChange?: (transforms: SavedModelTransform[]) => void;
 };
@@ -47,7 +46,6 @@ export function Scene({
   receiveShadow = false,
   scaled_length,
   onBoundingBoxChange,
-  onVolumeChange,
   resetKey = 0,
   onTransformsChange,
 }: SceneProps) {
@@ -120,7 +118,6 @@ export function Scene({
             scaled_length={scaled_length}
             // boundingBox nur für den ersten Artikel berechnen
             onBoundingBoxChange={i === 0 ? onBoundingBoxChange : undefined}
-            onVolumeChange={i === 0 ? onVolumeChange : undefined}
             showLocalAxes={true}
             axesSize={40}
           />

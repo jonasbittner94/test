@@ -197,6 +197,7 @@ function RenderingContent() {
           item_length: itemLength,
           item_width: itemWidth,
           item_height: itemHeight,
+          file_url: activeUrl,
           quantity: itemQuantity,
           scaledLength: scaled_length,
           pattern: pattern,
@@ -312,7 +313,6 @@ function RenderingContent() {
         rotationsX={rotationsX}
         rotationsY={rotationsY}
         onBoundingBoxChange={setBoundingBox}
-        onVolumeChange={setExactVolume}
         resetKey={resetKey}
         scaled_length={scaledLength}
       />
