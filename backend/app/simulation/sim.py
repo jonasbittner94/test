@@ -327,7 +327,13 @@ class PackagingSimulation:
 
     def _disconnect(self) -> None:
         if self.physics_client is not None:
-            p.disconnect(self.physics_client)
+            # Beim manuellen Schliessen des GUI-Fensters ist der Physik-Server
+            # bereits getrennt -> p.disconnect wuerde sonst p.error werfen.
+            try:
+                if p.isConnected(self.physics_client):
+                    p.disconnect(self.physics_client)
+            except p.error:
+                pass
             self.physics_client = None
 
 
