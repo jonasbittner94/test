@@ -8,7 +8,7 @@ LHM_HEIGHT = 220.0
 EPS = 1e-9
 
 
-def get_lhm_capacity(box: Box) -> dict:
+def get_lhm_capacity(box: Box) -> int:
     best = None
 
     for dims in set(permutations((box.length, box.width, box.height))):
@@ -32,5 +32,8 @@ def get_lhm_capacity(box: Box) -> dict:
                 "capacity": count,
             }
 
+    # Box passt in keiner Orientierung auf das LHM -> keine Kapazitaet
+    if best is None:
+        return 0
+
     return best["capacity"]
-    

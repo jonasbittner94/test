@@ -30,6 +30,8 @@ class SingleBoxSimulationRequest(BaseModel):
     box_name: str
     estimated_density: float | None = None
     box: RequestedBox
+    # Effektiver Seed des urspruenglichen Laufs -> exakte Reproduktion im GUI.
+    random_seed: int | None = None
 
 
 router = APIRouter(
@@ -126,6 +128,15 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
         collision_file=str(collision_path),
         parallel_simulations=False,
         use_gui=True,
+        # Genau ein Lauf mit dem gespeicherten Seed -> reproduziert die Schuettung,
+        # die zu den Kennwerten auf der Result-Page gehoert. box_index ist hier 0,
+        # daher ist der effektive Seed exakt request.random_seed.
+        runs_per_box=1,
+        random_seed=(
+            request.random_seed
+            if request.random_seed is not None
+            else config.random_seed
+        ),
     )
 
     try:

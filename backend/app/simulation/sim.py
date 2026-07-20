@@ -46,10 +46,10 @@ class SimulationConfig:
     early_validation_factor: float = 1.5
 
     # Verdichtung durch Rütteln der Artikel
-    settle_duration: float = 0.25
-    settle_force_scale: float = 0.04
-    settle_frequency: float = 1.0
-    collision_margin: float = 0.0002
+    settle_duration: float = 1
+    settle_force_scale: float = 0.5
+    settle_frequency: float = 1
+    collision_margin: float = 0.00002
     fit_height_tolerance: float = 0.02
     random_seed: Optional[int] = 42
     runs_per_box: int = 1
@@ -111,6 +111,14 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
         )
         result["filling_height_std_mm"] = variance**0.5
         result["runs_per_box"] = n_runs
+
+        # Effektiver Seed des ERSTEN Laufs (run_index=0). Erlaubt es, im GUI-Re-Run
+        # exakt dieselbe Schuettung zu reproduzieren, die zu diesen Kennwerten gehoert.
+        result["random_seed"] = (
+            None
+            if config.random_seed is None
+            else config.random_seed + box_index * 1000
+        )
 
         # Artikel pro Ladehilfsmittel: die komplette VPE-Menge passt in die
         # Box, also Menge x Boxen pro LHM (Spalte "Amount per bin box")
@@ -329,6 +337,14 @@ class PackagingSimulation:
         wall_height = max(cfg.box_z, self._get_spawn_wall_height())
         visual_height = cfg.box_z
 
+        # Die uebergebenen Boxmasse sind INNENMASSE. Der Boden ist wall_thickness
+        # dick, daher sitzen die Waende auf dem Boden auf (Start bei floor_top).
+        # So betraegt die nutzbare Innenhoehe UEBER dem Boden exakt box_z; die
+        # Fuellhoehen-Bewertung (max_z - wall_thickness) bleibt konsistent.
+        floor_top = cfg.wall_thickness
+        wall_center_z = floor_top + wall_height / 2
+        visual_center_z = floor_top + visual_height / 2
+
         # Boden
         floor_collision_shape = p.createCollisionShape(
             p.GEOM_BOX,
@@ -377,24 +393,24 @@ class PackagingSimulation:
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
             baseVisualShapeIndex=hidden_wall_x,
-            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_height / 2],
+            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_center_z],
         )
         p.createMultiBody(
             baseMass=0,
             baseVisualShapeIndex=wall_visual_x,
-            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, visual_height / 2],
+            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, visual_center_z],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
             baseVisualShapeIndex=hidden_wall_x,
-            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_height / 2],
+            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_center_z],
         )
         p.createMultiBody(
             baseMass=0,
             baseVisualShapeIndex=wall_visual_x,
-            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, visual_height / 2],
+            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, visual_center_z],
         )
 
         # Wände Y-Richtung:
@@ -413,24 +429,24 @@ class PackagingSimulation:
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
             baseVisualShapeIndex=hidden_wall_y,
-            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_height / 2],
+            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_center_z],
         )
         p.createMultiBody(
             baseMass=0,
             baseVisualShapeIndex=wall_visual_y,
-            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, visual_height / 2],
+            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, visual_center_z],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
             baseVisualShapeIndex=hidden_wall_y,
-            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_height / 2],
+            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_center_z],
         )
         p.createMultiBody(
             baseMass=0,
             baseVisualShapeIndex=wall_visual_y,
-            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, visual_height / 2],
+            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, visual_center_z],
         )
 
     def _get_spawn_wall_height(self) -> float:
@@ -495,7 +511,7 @@ class PackagingSimulation:
             p.changeDynamics(
                 body_id,
                 -1,
-                lateralFriction=0.2,
+                lateralFriction=0.005,
                 spinningFriction=0.0005,
                 rollingFriction=0.0005,
                 linearDamping=0.04,
@@ -524,7 +540,7 @@ class PackagingSimulation:
         if filling_height > cfg.box_z * cfg.early_validation_factor:
             return
 
-        p.setGravity(0, 0, -50)
+        p.setGravity(0, 0, -100)
 
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,

@@ -19,6 +19,7 @@ type SimulationResult = {
   used_box_volume_cm3: number;
   packing_density_percent: number;
   articles_per_lhm?: number;
+  random_seed?: number | null;
 };
 
 type SimulationResponse = {
@@ -26,7 +27,7 @@ type SimulationResponse = {
   results: SimulationResult[];
 };
 
-type SortMode = "filling" | "lhm";
+type SortMode = "filling" | "lhm" | "density";
 
 export default function PackingResultsPage() {
   const [data, setData] = useState<SimulationResponse | null>(null);
@@ -69,6 +70,7 @@ export default function PackingResultsPage() {
             config: simulationRequest,
             box_name: result.box.name,
             estimated_density: result.packing_density_percent / 100,
+            random_seed: result.random_seed ?? null,
             box: {
               name: result.box.name,
               length: result.box.length,
@@ -114,6 +116,12 @@ export default function PackingResultsPage() {
       list.sort(
         (a, b) =>
           (b.articles_per_lhm ?? 0) - (a.articles_per_lhm ?? 0) ||
+          a.relative_filling_height_percent - b.relative_filling_height_percent
+      );
+    } else if (sortMode === "density") {
+      list.sort(
+        (a, b) =>
+          b.packing_density_percent - a.packing_density_percent ||
           a.relative_filling_height_percent - b.relative_filling_height_percent
       );
     } else {
@@ -163,6 +171,7 @@ export default function PackingResultsPage() {
         >
           <option value="filling">relative Füllhöhe (höchste zuerst)</option>
           <option value="lhm">Artikel pro LHM (höchste zuerst)</option>
+          <option value="density">Packdichte (höchste zuerst)</option>
         </select>
       </div>
 
