@@ -96,7 +96,6 @@ def run_simulation(config: SimulationConfig):
 @router.post("/run-single-box")
 def run_single_box_simulation(request: SingleBoxSimulationRequest):
     config = request.config
-    estimated_density = request.estimated_density
     requested_box = request.box
 
     try:

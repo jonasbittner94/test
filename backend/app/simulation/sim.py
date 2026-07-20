@@ -347,8 +347,22 @@ class PackagingSimulation:
             basePosition=[0, 0, cfg.wall_thickness / 2],
         )
 
+        # Unsichtbare Visual-Shape (Alpha 0) fuer die hohen Hilfswaende:
+        # verhindert, dass PyBullet im GUI die hohe Kollisionsgeometrie rendert
+        # (ein Koerper ohne Visual-Shape wird sonst als Kollisionsform gezeichnet).
+        hidden_wall_x = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, wall_height / 2],
+            rgbaColor=[0, 0, 0, 0],
+        )
+        hidden_wall_y = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, wall_height / 2],
+            rgbaColor=[0, 0, 0, 0],
+        )
+
         # Wände X-Richtung:
-        # Kollision = hohe Hilfswand, Visual = echte Boxhöhe
+        # Kollision = hohe Hilfswand (unsichtbar), Visual = echte Boxhöhe (blau)
         wall_collision_x = p.createCollisionShape(
             p.GEOM_BOX,
             halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, wall_height / 2],
@@ -362,6 +376,7 @@ class PackagingSimulation:
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
+            baseVisualShapeIndex=hidden_wall_x,
             basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_height / 2],
         )
         p.createMultiBody(
@@ -373,6 +388,7 @@ class PackagingSimulation:
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
+            baseVisualShapeIndex=hidden_wall_x,
             basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_height / 2],
         )
         p.createMultiBody(
@@ -382,7 +398,7 @@ class PackagingSimulation:
         )
 
         # Wände Y-Richtung:
-        # Kollision = hohe Hilfswand, Visual = echte Boxhöhe
+        # Kollision = hohe Hilfswand (unsichtbar), Visual = echte Boxhöhe (blau)
         wall_collision_y = p.createCollisionShape(
             p.GEOM_BOX,
             halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, wall_height / 2],
@@ -396,6 +412,7 @@ class PackagingSimulation:
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
+            baseVisualShapeIndex=hidden_wall_y,
             basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_height / 2],
         )
         p.createMultiBody(
@@ -407,6 +424,7 @@ class PackagingSimulation:
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
+            baseVisualShapeIndex=hidden_wall_y,
             basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_height / 2],
         )
         p.createMultiBody(
