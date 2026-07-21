@@ -24,8 +24,6 @@ export default function FormPage() {
 
   const [formData, setFormData] = useState({
     itemQuantity: "",
-    layerRequired: false,
-    layerType: "Keine",
     bulkGoods: false,
     scalable: false,
     scaled_length: "",
@@ -205,7 +203,6 @@ export default function FormPage() {
     if (!isValid) return;
 
     localStorage.setItem("itemQuantity", formData.itemQuantity);
-    localStorage.setItem("layerStorage", formData.layerType);
     localStorage.setItem("bulkGoods", String(formData.bulkGoods));
     localStorage.setItem("scaled_length", formData.scaled_length);
 
@@ -303,60 +300,6 @@ export default function FormPage() {
               {errors.itemQuantity}
             </span>
           )}
-
-          {/* Zwischenlagen */}
-          <Form.Group
-            className="mb-3"
-            controlId="seperationlayer"
-            style={{ marginTop: "12px" }}
-          >
-            <Form.Label>
-              Werden Papplagen zwischen den Artikellagen benötigt?
-            </Form.Label>
-            <Form.Check
-              type="checkbox"
-              id="default-checkbox"
-              label="Zwischenlagen benötigt"
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setFormData((prev) => ({
-                  ...prev,
-                  layerRequired: checked,
-                }));
-                if (!checked) {
-                  setFormData((prev) => ({
-                    ...prev,
-                    layerType: "Keine",
-                  }));
-                  localStorage.setItem("layerStorage", "Keine");
-                }
-              }}
-            />
-          </Form.Group>
-          {/* Art der Zwischenlagen */}
-          <Collapse in={formData.layerRequired}>
-            <Form.Group className="mb-3" controlId="layerGroup">
-              <div id="advanced-region">
-                <Form.Select
-                  value={formData.layerType}
-                  style={{ width: "700px" }}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setFormData((prev) => ({
-                      ...prev,
-                      layerType: val,
-                    }));
-                    localStorage.setItem("layerStorage", val);
-                  }}
-                >
-                  <option value="Keine">Keine Zwischenlage</option>
-                  <option value="Pappe">Pappe</option>
-                  <option value="Papier">Papier</option>
-                  <option value="Sonstige">sonstiges</option>
-                </Form.Select>
-              </div>
-            </Form.Group>
-          </Collapse>
 
           {/*Schüttgut */}
           <Form.Group className="mb-3" controlId="bulkGoods">
