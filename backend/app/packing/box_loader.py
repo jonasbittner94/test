@@ -26,6 +26,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
     with path.open(newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
 
+    #Packmuster-Pfad
         if bulk is False:
             #Vorfilerung
             for row in reader:
@@ -46,6 +47,8 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
                     
                 boxes.sort(key=lambda box: box.volume)
             return boxes[:200]
+        
+    #Schüttgut-Pfad
         else:
             for row in reader:
                 length=float(row["length"])
@@ -55,7 +58,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
                 # Zufallsschuettung erreicht real nur ~35-55 % Dichte. Boxen mit
                 # theoretischer Auslastung >0.55 koennen daher nie passen; die
                 # Untergrenze 0.25 sortiert stark ueberdimensionierte Boxen aus.
-                if article_volume<=box_volume and (article_volume/box_volume)>0.25 and (article_volume/box_volume)<0.55 :
+                if article_volume<=box_volume and (article_volume/box_volume)>0.25 and (article_volume/box_volume)<0.40 :
                     boxes.append(
                         Box(
                             name=row["Object Name"],
@@ -66,7 +69,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
                         )
                 )
             boxes.sort(key=lambda box: box.volume)
-            return boxes[:20]
+            return boxes[:30]
 
 
 

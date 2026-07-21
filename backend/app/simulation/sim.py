@@ -19,16 +19,17 @@ class SimulationConfig:
     # VHACD-Zerlegung der STL, in Teilkörper
     collision_file: Optional[str] = None
 
-    item_mass: float = 0.1
 
-    #Scale auf mm
+    item_mass: float = 0.01
+
+    #Scale auf mm und verwendung der skallierten x komponente
     mesh_scale: tuple[float, float, float] = (0.001, 0.001, 0.001)
-    wall_thickness: float = 0.005
+    wall_thickness: float = 0.01
 
     # Performance / Genauigkeit
     use_box_collision: bool = True
-    fixed_time_step: float = 1 / 240
-    solver_iterations: int = 40
+    fixed_time_step: float = 1 / 480
+    solver_iterations: int = 80
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
     max_simulation_steps: int = 350
@@ -152,6 +153,8 @@ class PackagingSimulation:
 
         self.article_ids: list[int] = []
         self.collision_shape_id: int | None = None
+        self.visual_shape_id: int | None = None
+
 
         # Artikelmaße von mm auf m
         self.article_x = self.item.length / 1000
@@ -170,6 +173,16 @@ class PackagingSimulation:
             (self.config, box, index)
             for index, box in enumerate(boxes)
         ]
+
+        debug_single_run = self.config.use_gui
+
+        if debug_single_run:
+            simulation_results = [
+                run_single_box_simulation(simulation_args[0])
+            ]
+            return {
+                "results": _get_best_valid_results(simulation_results),
+            }
 
         if not self.config.parallel_simulations or len(boxes) == 1:
             simulation_results = [
@@ -202,6 +215,8 @@ class PackagingSimulation:
     def _run_single(self) -> dict:
         self.article_ids = []
         self.collision_shape_id = None
+        self.visual_shape_id = None
+
 
         try:
             self._connect()
@@ -275,6 +290,7 @@ class PackagingSimulation:
 
     def _create_box(self) -> None:
         cfg = self.config
+        wall_height = max(cfg.box_z, self._get_spawn_wall_height())
 
         # Boden
         collision_shape = p.createCollisionShape(
@@ -292,18 +308,18 @@ class PackagingSimulation:
 
         wall_collision_x = p.createCollisionShape(
             p.GEOM_BOX,
-            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, cfg.box_z],
+            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, wall_height/2],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
-            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, cfg.box_z],
+            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_height/2],
         )
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
-            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, cfg.box_z],
+            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_height/2],
         )
 
         # Wände Y-Richtung
@@ -311,29 +327,45 @@ class PackagingSimulation:
         
         wall_collision_y = p.createCollisionShape(
             p.GEOM_BOX,
-            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, cfg.box_z],
+            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, wall_height/2],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
-            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, cfg.box_z],
+            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_height/2],
         )
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
-            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, cfg.box_z],
+            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_height/2],
         )
+
+    def _get_spawn_wall_height(self) -> float:
+            cfg = self.config
+
+            layer = (cfg.item_quantity - 1) % 6
+            stack = (cfg.item_quantity - 1) // 6
+            highest_spawn_z = cfg.box_z + 0.03 + layer * (self.article_z + 0.01) + stack * 0.01
+
+            return highest_spawn_z + self.article_z + 0.05          
 
     def _create_article_shapes(self) -> None:
         cfg = self.config
 
-        # VHACD-OBJ (konvexe Zerlegung)
+        mesh_file = cfg.collision_file or cfg.stl_file
+
         self.collision_shape_id = p.createCollisionShape(
             p.GEOM_MESH,
-            fileName=cfg.collision_file or cfg.stl_file,
+            fileName=mesh_file,
             meshScale=cfg.mesh_scale,
         )
+
+        self.visual_shape_id = p.createVisualShape(
+            p.GEOM_MESH,
+            fileName=cfg.stl_file,
+            meshScale=cfg.mesh_scale,
+            rgbaColor=[0.7, 0.7, 0.7, 1.0],)
 
 
     def _spawn_articles(self) -> None:
@@ -343,18 +375,18 @@ class PackagingSimulation:
 
         #random Platz in x-y-Ebene
         for i in range(cfg.item_quantity):
-            x_pos = random.uniform(-cfg.box_x / 4, cfg.box_x / 4)
-            y_pos = random.uniform(-cfg.box_y / 4, cfg.box_y / 4)
+            x_pos = random.uniform(-cfg.box_x / 3, cfg.box_x / 3)
+            y_pos = random.uniform(-cfg.box_y / 3, cfg.box_y / 3)
 
             #Kollisions-Explosion vermeiden: Artikel in 10er-Blöcken stapeln, mit 2mm Abstand
-            layer = i % 10
-            stack = i // 10
-            z_pos = cfg.box_z + 0.02 + layer * (self.article_z + 0.002) + stack * 0.002
+            layer = i % 6
+            stack = i // 6
+            z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.01) + stack * 0.01
 
             random_orientation = p.getQuaternionFromEuler(
                 [
-                    random.uniform(-0.5, 0.5),
-                    random.uniform(-0.5, 0.5),
+                    random.uniform(-0.15, 0.15),
+                    random.uniform(-0.15, 0.15),
                     random.uniform(0, 2 * math.pi),
                 ]
             )
@@ -362,6 +394,7 @@ class PackagingSimulation:
             body_id = p.createMultiBody(
                 baseMass=cfg.item_mass,
                 baseCollisionShapeIndex=self.collision_shape_id,
+                baseVisualShapeIndex=self.visual_shape_id,
                 basePosition=[x_pos, y_pos, z_pos],
                 baseOrientation=random_orientation,
             )
@@ -373,8 +406,8 @@ class PackagingSimulation:
                 lateralFriction=0.2,
                 spinningFriction=0.0005,
                 rollingFriction=0.0005,
-                linearDamping=0.0,
-                angularDamping=0.0,
+                linearDamping=0.04,
+                angularDamping=0.04,
                 restitution=0.0,
                 collisionMargin=cfg.collision_margin,
             )
@@ -478,9 +511,15 @@ class PackagingSimulation:
         # Echtes Mesh-Volumen (mm^3 -> m^3) statt Bounding-Box-Quader;
         # Fallback auf den Quader, falls kein Mesh-Volumen berechnet wurde.
         if cfg.mesh_volume > 0:
-            single_article_volume = cfg.mesh_volume * 1e-9
+            scale_x = cfg.mesh_scale[0] / 0.001
+            scale_y = cfg.mesh_scale[1] / 0.001
+            scale_z = cfg.mesh_scale[2] / 0.001
+            volume_scale = scale_x * scale_y * scale_z
+            single_article_volume = cfg.mesh_volume * volume_scale * 1e-9
         else:
             single_article_volume = self.article_x * self.article_y * self.article_z
+
+
         total_article_volume = cfg.item_quantity * single_article_volume
         used_box_volume = cfg.box_x * cfg.box_y * filling_height
         box_volume = cfg.box_x * cfg.box_y * cfg.box_z

@@ -116,12 +116,19 @@ export default function FormPage() {
     setSimulationError("");
 
     try {
+      const hasScaling =
+        formData.scalable &&
+        Number(formData.scaled_length) > 0 &&
+        uploadedItem.length > 0;
+
+      const scaleFactor = hasScaling
+        ? Number(formData.scaled_length) / uploadedItem.length
+        : 1;
+
       const item = {
-        ...uploadedItem,
-        length:
-          formData.scalable && Number(formData.scaled_length) > 0
-            ? Number(formData.scaled_length)
-            : uploadedItem.length,
+        length: uploadedItem.length * scaleFactor,
+        width: uploadedItem.width,
+        height: uploadedItem.height,
       };
 
       const payload = {
@@ -129,7 +136,7 @@ export default function FormPage() {
         item_quantity: Number(formData.itemQuantity),
         boxes: [],
         stl_file: uploadedStlFile,
-        mesh_scale: [0.001, 0.001, 0.001],
+        mesh_scale: [0.001 * scaleFactor, 0.001, 0.001],
       };
 
       const response = await fetch("http://localhost:8000/simulation/run", {
@@ -282,6 +289,7 @@ export default function FormPage() {
               </span>
             </div>
           </Form.Group>
+
           {/*Validation der Artikelanzahl*/}
           {errors.itemQuantity && (
             <span

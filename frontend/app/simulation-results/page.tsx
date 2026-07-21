@@ -59,7 +59,7 @@ export default function PackingResultsPage() {
     } else {
       list.sort(
         (a, b) =>
-          a.relative_filling_height_percent - b.relative_filling_height_percent
+          b.relative_filling_height_percent - a.relative_filling_height_percent
       );
     }
 
@@ -101,7 +101,7 @@ export default function PackingResultsPage() {
             background: "#ffffff",
           }}
         >
-          <option value="filling">Füllhöhe (niedrigste zuerst)</option>
+          <option value="filling">Füllhöhe (höchste zuerst)</option>
           <option value="lhm">Artikel pro LHM (höchste zuerst)</option>
         </select>
       </div>
