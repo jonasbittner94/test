@@ -1,12 +1,6 @@
 "use client"; //Rendering auf Client-Seite im Browser
 
-import {
-  useState,
-  useEffect,
-  Suspense,
-  Dispatch,
-  SetStateAction,
-} from "react";
+import { useState, useEffect, Suspense, Dispatch, SetStateAction } from "react";
 import type { PackingResponse } from "@/lib/packing";
 import { useSearchParams } from "next/navigation";
 import { ControlPanel } from "../../components/rendering/ControlPanel";
@@ -167,7 +161,7 @@ function RenderingContent() {
     }
 
     const itemQuantity = Number(localStorage.getItem("itemQuantity") ?? "0");
-    console.log(itemQuantity)
+    console.log(itemQuantity);
     const [itemLength, itemWidth, itemHeight] = boundingBox;
 
     const scaled_length =
@@ -197,7 +191,6 @@ function RenderingContent() {
           item_length: itemLength,
           item_width: itemWidth,
           item_height: itemHeight,
-          item_weight: Number(localStorage.getItem("itemWeight") ?? "0"),
           file_url: activeUrl,
           quantity: itemQuantity,
           scaledLength: scaled_length,

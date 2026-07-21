@@ -52,7 +52,6 @@ class PackingRequest(BaseModel):
     item_length: float
     item_width: float
     item_height: float
-    item_weight: float = 0.0  # Gramm
     file_url:str
     quantity: int
     scaledLength: float
@@ -68,7 +67,6 @@ def get_top_20_packing_results(data: PackingRequest):
         length=data.scaledLength,
         width=data.item_width,
         height=data.item_height,
-        weight=data.item_weight,
     )
     
     #Patternobject in dict umwandeln

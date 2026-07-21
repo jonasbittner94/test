@@ -19,7 +19,7 @@ class SimulationConfig:
     # VHACD-Zerlegung der STL, in Teilkörper
     collision_file: Optional[str] = None
 
-    item_mass: float = 0.006
+    item_mass: float = 0.1
 
     #Scale auf mm
     mesh_scale: tuple[float, float, float] = (0.001, 0.001, 0.001)

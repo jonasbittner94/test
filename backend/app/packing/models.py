@@ -7,7 +7,6 @@ class Item:
     length: float
     width: float
     height: float
-    weight: float
 
     @property
     def volume(self):

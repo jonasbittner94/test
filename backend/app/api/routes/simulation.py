@@ -45,10 +45,6 @@ def run_simulation(config: SimulationConfig):
         mesh_volume=mesh_volume,
         stl_file=str(stl_path),
         collision_file=str(collision_path),
-        # Artikelgewicht (Gramm) ist die eine Quelle; Sim rechnet in kg
-        item_mass=config.item.weight / 1000
-        if config.item.weight > 0
-        else config.item_mass,
     )
 
     try:
