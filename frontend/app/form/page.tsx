@@ -24,7 +24,6 @@ export default function FormPage() {
 
   const [formData, setFormData] = useState({
     itemQuantity: "",
-    itemWeight: "1",
     layerRequired: false,
     layerType: "Keine",
     bulkGoods: false,
@@ -34,7 +33,6 @@ export default function FormPage() {
   const [errors, setErrors] = useState({
     file: "",
     itemQuantity: "",
-    itemWeight: "",
     scaled_length: "",
   });
   const [isBulkGood, setIsBulkGood] = useState<boolean>(false);
@@ -126,8 +124,6 @@ export default function FormPage() {
           formData.scalable && Number(formData.scaled_length) > 0
             ? Number(formData.scaled_length)
             : uploadedItem.length,
-        // Gewicht in Gramm -- das Backend leitet die Masse (kg) daraus ab
-        weight: Number(formData.itemWeight),
       };
 
       const payload = {
@@ -178,7 +174,6 @@ export default function FormPage() {
     const newErrors = {
       file: "",
       itemQuantity: "",
-      itemWeight: "",
       scaled_length: "",
     };
 
@@ -189,9 +184,6 @@ export default function FormPage() {
     if (!formData.itemQuantity || Number(formData.itemQuantity) <= 0) {
       newErrors.itemQuantity =
         "Bitte geben Sie eine gültige Anzahl an Artikeln an.";
-    }
-    if (!formData.itemWeight || Number(formData.itemWeight) <= 0) {
-      newErrors.itemWeight = "Bitte geben Sie ein gültiges Gewicht an.";
     }
 
     if (
@@ -213,7 +205,6 @@ export default function FormPage() {
     if (!isValid) return;
 
     localStorage.setItem("itemQuantity", formData.itemQuantity);
-    localStorage.setItem("itemWeight", formData.itemWeight);
     localStorage.setItem("layerStorage", formData.layerType);
     localStorage.setItem("bulkGoods", String(formData.bulkGoods));
     localStorage.setItem("scaled_length", formData.scaled_length);
@@ -310,53 +301,6 @@ export default function FormPage() {
               }}
             >
               {errors.itemQuantity}
-            </span>
-          )}
-
-          {/* Artikelgewicht definieren */}
-          <Form.Group
-            className="mb-3"
-            controlId="itemweight"
-            style={{ marginTop: "12px" }}
-          >
-            <Form.Label>Artikelgewicht:</Form.Label>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              <Form.Control
-                type="number"
-                value={formData.itemWeight}
-                style={{ width: "700px" }}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setFormData((prev) => ({
-                    ...prev,
-                    itemWeight: value,
-                  }));
-                }}
-              />
-              <span style={{ color: "#888", marginLeft: "5px" }}>Gramm</span>
-            </div>
-          </Form.Group>
-          {/*Validation des Artikelgewichts*/}
-          {errors.itemWeight && (
-            <span
-              style={{
-                color: "#991b1b",
-                backgroundColor: "#fee2e2",
-                border: "1px solid #fca5a5",
-                borderRadius: "9999px",
-                padding: "6px 12px",
-                fontSize: "14px",
-                fontWeight: 600,
-                marginTop: "6px",
-                marginBottom: "6px",
-              }}
-            >
-              {errors.itemWeight}
             </span>
           )}
 
