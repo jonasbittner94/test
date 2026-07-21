@@ -255,6 +255,7 @@ class PackingOptimizer:
             if total_capacity < self.quantity:
                 # Menge passt auch mit Restraum nicht -> Orientierung verwerfen
                 continue
+        
 
             score = (capacity, total_capacity)
             if best is None or score > best["score"]:

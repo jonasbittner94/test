@@ -79,6 +79,7 @@ def get_top_20_packing_results(data: PackingRequest):
 
     mesh_volume = compute_scaled_volume_mm3(stl_path, data.scaledLength)
 
+    #Bei starker Überlappung wird das Volumen kleine, deshalb wird dann die Überlappung vom Boundingboxvolumen abgezogen und damit die Boxen gefiltert
     effective_volume = mesh_volume
     if pattern:
         helper = PackingOptimizer(
@@ -96,7 +97,7 @@ def get_top_20_packing_results(data: PackingRequest):
         str(BOXES_CSV),
         data.quantity,
         bulk=False,
-        mesh_volume=mesh_volume
+        mesh_volume=effective_volume
     )
 
     optimizer = PackingOptimizer(

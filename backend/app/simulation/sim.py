@@ -45,7 +45,7 @@ class SimulationConfig:
     # Verdichtung durch Rütteln der Artikel
     settle_duration: float = 0.25
     settle_force_scale: float = 0.04
-    settle_frequency: float = 10.0
+    settle_frequency: float = 1.0
     collision_margin: float = 0.0002
     fit_height_tolerance: float = 0.02
     random_seed: Optional[int] = 42
@@ -118,7 +118,7 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
             "length": box.length,
             "width": box.width,
             "height": box.height,
-            "capacityLHM": box.capacityLHM,
+            "capacityLHM": box.capacityLHM*config.item_quantity,
         }
 
         return result

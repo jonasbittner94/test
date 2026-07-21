@@ -135,7 +135,7 @@ export default function PackingResultsPage() {
 
             <div>
               <strong>LHM-Kapazität:</strong> {result.box.capacityLHM}
-              {" Verpackungen pro LHM"}
+              {" Artikel pro LHM"}
             </div>
 
             {result.articles_per_lhm !== undefined && (
@@ -153,16 +153,6 @@ export default function PackingResultsPage() {
             <div>
               <strong>Relative Füllhöhe:</strong>{" "}
               {result.relative_filling_height_percent.toFixed(2)} %
-            </div>
-
-            <div>
-              <strong>Artikelvolumen gesamt:</strong>{" "}
-              {result.total_article_volume_cm3.toFixed(2)} cm³
-            </div>
-
-            <div>
-              <strong>Genutztes Boxvolumen:</strong>{" "}
-              {result.used_box_volume_cm3.toFixed(2)} cm³
             </div>
 
             <div>
