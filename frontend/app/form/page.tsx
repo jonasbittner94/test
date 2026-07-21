@@ -133,7 +133,7 @@ export default function FormPage() {
       const payload = {
         item: item,
         item_quantity: Number(formData.itemQuantity),
-        boxes:[],
+        boxes: [],
         stl_file: uploadedStlFile,
         mesh_scale: [0.001, 0.001, 0.001],
       };
@@ -491,7 +491,11 @@ export default function FormPage() {
           </Collapse>
         </Form>
         <br></br>
-        <Button variant="primary" onClick={handleRender} disabled={isSimulating}>
+        <Button
+          variant="primary"
+          onClick={handleRender}
+          disabled={isSimulating}
+        >
           {isSimulating ? (
             <>
               <span
