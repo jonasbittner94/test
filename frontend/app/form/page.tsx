@@ -26,6 +26,7 @@ export default function FormPage() {
     itemQuantity: "",
     bulkGoods: false,
     scalable: false,
+    stability: "",
     scaled_length: "",
   });
   const [errors, setErrors] = useState({
@@ -137,6 +138,7 @@ export default function FormPage() {
         boxes: [],
         stl_file: uploadedStlFile,
         mesh_scale: [0.001 * scaleFactor, 0.001, 0.001],
+        stability: formData.stability,
       };
 
       const response = await fetch("http://localhost:8000/simulation/run", {
@@ -212,6 +214,7 @@ export default function FormPage() {
     localStorage.setItem("itemQuantity", formData.itemQuantity);
     localStorage.setItem("bulkGoods", String(formData.bulkGoods));
     localStorage.setItem("scaled_length", formData.scaled_length);
+    localStorage.setItem("stability", formData.stability);
 
     if (formData.bulkGoods) {
       await runSimulation();
@@ -321,6 +324,31 @@ export default function FormPage() {
               checked={formData.bulkGoods}
               onChange={handleBulkGoodChange}
             />
+          </Form.Group>
+
+          {/* Art der Zwischenlagen */}
+          <Form.Group className="mb-3" controlId="layerGroup">
+            <Form.Label>
+              Nach welchem Verpackungstyp soll gefiltert werden?
+            </Form.Label>
+            <div id="advanced-region">
+              <Form.Select
+                value={formData.stability}
+                style={{ width: "700px" }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({
+                    ...prev,
+                    stability: val,
+                  }));
+                  localStorage.setItem("stability", val);
+                }}
+              >
+                <option value="Beliebig">Beliebig</option>
+                <option value="1E">1E</option>
+                <option value="1B">1B</option>
+              </Form.Select>
+            </div>
           </Form.Group>
 
           {/* Skalierung */}

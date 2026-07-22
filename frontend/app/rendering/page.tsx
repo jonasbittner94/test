@@ -161,11 +161,10 @@ function RenderingContent() {
     }
 
     const itemQuantity = Number(localStorage.getItem("itemQuantity") ?? "0");
-    console.log(itemQuantity);
     const [itemLength, itemWidth, itemHeight] = boundingBox;
-
     const scaled_length =
       scaledLength && scaledLength > 0 ? scaledLength : itemLength;
+    const stability = localStorage.getItem("stability") ?? "beliebig";
 
     if (!itemQuantity || itemQuantity <= 0) {
       setPackingError("Keine gültige Artikelmenge gefunden.");
@@ -196,6 +195,7 @@ function RenderingContent() {
           scaledLength: scaled_length,
           pattern: pattern,
           mesh_volume: exactVolume,
+          stability: stability,
         }),
       });
 

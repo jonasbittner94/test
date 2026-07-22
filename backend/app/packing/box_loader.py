@@ -12,13 +12,10 @@ def _safe_float(value):
         return 0.0
 
 
-def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
+def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,stability:str
 ) -> list[Box]:
     path = Path(csv_path)
     boxes: list[Box] = []
-    quantity:int
-    bulk:bool
-    mesh_volume:float
 
 
     article_volume=mesh_volume*quantity
@@ -28,12 +25,18 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
 
     #Packmuster-Pfad
         if bulk is False:
-            #Vorfilerung
             for row in reader:
+                row_stability = row.get("Stabilität", "")
+
+                if stability != "beliebig" and stability!="" and row_stability != stability:
+                    continue
+                
+                #Vorfilerung
                 length=float(row["length"])
                 width=float(row["width"])
                 height=float(row["height"])
                 box_volume=length*width*height
+
                 if article_volume<=box_volume:
                     boxes.append(
                         Box(
@@ -45,7 +48,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume=float
                         )
                 )
                     
-                boxes.sort(key=lambda box: box.volume)
+            boxes.sort(key=lambda box: box.volume)
             return boxes[:200]
         
     #Schüttgut-Pfad

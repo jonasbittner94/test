@@ -57,6 +57,7 @@ class PackingRequest(BaseModel):
     scaledLength: float
     pattern: Optional[PatternRequest] = None
     mesh_volume:Optional[float] = None
+    stability:str
 
 router = APIRouter()
 
@@ -97,7 +98,8 @@ def get_top_20_packing_results(data: PackingRequest):
         str(BOXES_CSV),
         data.quantity,
         bulk=False,
-        mesh_volume=effective_volume
+        mesh_volume=effective_volume,
+        stability=data.stability 
     )
 
     optimizer = PackingOptimizer(
