@@ -255,9 +255,30 @@ class PackingOptimizer:
             if total_capacity < self.quantity:
                 # Menge passt auch mit Restraum nicht -> Orientierung verwerfen
                 continue
-        
 
-            score = (capacity, total_capacity)
+            required_main = min(self.quantity, capacity)
+
+            used_layers_z = min(
+                nz,
+                (required_main + nx * ny - 1) // (nx * ny),
+            )
+
+            compact_used_z = (
+                (used_layers_z - 1) * sz + H
+                if used_layers_z > 0
+                else 0.0
+            )
+
+            estimated_used_volume = used_x * used_y * compact_used_z
+            excess_capacity = total_capacity - self.quantity
+
+            score = (
+                -estimated_used_volume,
+                -excess_capacity,
+                capacity,
+            )
+
+
             if best is None or score > best["score"]:
                 best = {
                     "rotation_key": orientation["rotation_key"],
@@ -339,12 +360,10 @@ class PackingOptimizer:
 
         if self.mesh_volume is not None:
             single_volume = self.mesh_volume
-            print(single_volume)
         else: 
             single_volume = (articleLengthReal * articleWidthReal * articleHeightReal)
-            print(single_volume,"hat nicht geklappt")
 
-        
+        print("single_volume",single_volume)
         used_volume = single_volume*self.quantity
         fill_rate = used_volume / box.volume if box.volume > 0 else 0.0
         empty_volume = box.volume - used_volume
@@ -401,7 +420,7 @@ class PackingOptimizer:
             result = self.evaluate_box(box)
             seen_dimensions.add(dimensions)
 
-            if result and result["fill_rate"] > 0.5:
+            if result:# and result["fill_rate"] > 0.5:
                 candidates.append(result)
 
 

@@ -101,7 +101,7 @@ export default function PackingResultsPage() {
             background: "#ffffff",
           }}
         >
-          <option value="filling">Füllhöhe (höchste zuerst)</option>
+          <option value="filling">relative Füllhöhe (höchste zuerst)</option>
           <option value="lhm">Artikel pro LHM (höchste zuerst)</option>
         </select>
       </div>

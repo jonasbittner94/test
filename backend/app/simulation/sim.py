@@ -8,6 +8,8 @@ import os
 from typing import List, Optional
 from app.packing.models import Item, Box
 from dataclasses import dataclass, field, replace
+from statistics import median
+
 
 @dataclass
 class SimulationConfig:
@@ -16,6 +18,7 @@ class SimulationConfig:
     boxes: List[Box] = field(default_factory=list)    
     mesh_volume: float = 0.0
     stl_file: str = "ausgabe.stl"
+    stability: str | None = None
     # VHACD-Zerlegung der STL, in Teilkörper
     collision_file: Optional[str] = None
 
@@ -141,6 +144,38 @@ def _get_best_valid_results(simulation_results: list[dict], limit: int | None = 
     return valid_results if limit is None else valid_results[:limit]
 
 
+def estimate_bulk_packing_density(config: SimulationConfig) -> float:
+    """
+    Simuliert 3 Referenzboxen und liefert die geschaetzte Packdichte als Median
+    im Bereich [0, 1].
+    """
+    reference_boxes = [
+        Box(name="ref_small", length=100, width=50, height=500, capacityLHM=1),
+        Box(name="ref_medium", length=200, width=100, height=500, capacityLHM=1),
+        Box(name="ref_large", length=400, width=300, height=500, capacityLHM=1),
+    ]
+
+    densities: list[float] = []
+
+    for index, box in enumerate(reference_boxes):
+        single_config = replace(
+            config,
+            boxes=[box],
+            runs_per_box=1,
+            use_gui=False,
+            parallel_simulations=False,
+            random_seed=None if config.random_seed is None else config.random_seed + 10_000 + index,
+        )
+
+        result = run_single_box_simulation((single_config, box, index))
+        densities.append(result["packing_density_percent"] / 100.0)
+
+    if not densities:
+        return 0.35
+
+    return median(densities)
+
+
 
 
 
@@ -162,6 +197,7 @@ class PackagingSimulation:
         self.article_z = self.item.height / 1000
 
     
+
 
     def run(self) -> dict:
         boxes = self.config.boxes

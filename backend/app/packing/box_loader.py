@@ -12,13 +12,15 @@ def _safe_float(value):
         return 0.0
 
 
-def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,stability:str
+def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,stability:str,estimated_packing_density: float | None = None,
 ) -> list[Box]:
     path = Path(csv_path)
     boxes: list[Box] = []
 
 
     article_volume=mesh_volume*quantity
+
+    print(article_volume)
 
     with path.open(newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -53,15 +55,29 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,s
         
     #Schüttgut-Pfad
         else:
+            upper_density_limit = (
+                min(0.60, estimated_packing_density * 1.15)
+                if estimated_packing_density is not None
+                else 0.40
+            )
+            lower_density_limit = 0.15
             for row in reader:
+                row_stability = row.get("Stabilität", "")
+
+                if stability != "beliebig" and stability!="" and row_stability != stability:
+                    continue
+                
                 length=float(row["length"])
                 width=float(row["width"])
                 height=float(row["height"])
                 box_volume=length*width*height
+                required_density = article_volume / box_volume if box_volume > 0 else 0
+
                 # Zufallsschuettung erreicht real nur ~35-55 % Dichte. Boxen mit
                 # theoretischer Auslastung >0.55 koennen daher nie passen; die
                 # Untergrenze 0.25 sortiert stark ueberdimensionierte Boxen aus.
-                if article_volume<=box_volume and (article_volume/box_volume)>0.25 and (article_volume/box_volume)<0.40 :
+                if (article_volume<=box_volume and required_density > lower_density_limit
+                and required_density < upper_density_limit):
                     boxes.append(
                         Box(
                             name=row["Object Name"],
@@ -70,9 +86,11 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,s
                             height=float(row["height"]),
                             capacityLHM=_safe_float(row["Amount per bin box (LHM C)"])
                         )
+                    
                 )
+                    print(row)
             boxes.sort(key=lambda box: box.volume)
-            return boxes[:30]
+            return boxes[:20]
 
 
 

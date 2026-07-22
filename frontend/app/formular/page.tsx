@@ -222,7 +222,7 @@ export default function FormPage() {
     }
 
     if (!isBulkGood) {
-      router.push("/rendering");
+      router.push("/positioning");
     }
   };
 

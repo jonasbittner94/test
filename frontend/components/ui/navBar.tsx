@@ -20,7 +20,7 @@ export default function SiteNavbar() {
             <Nav.Link as={Link} href="/">
               Home
             </Nav.Link>
-            <Nav.Link as={Link} href="/form">
+            <Nav.Link as={Link} href="/formular">
               Neue Verpackung finden
             </Nav.Link>
           </Nav>

@@ -20,7 +20,7 @@ export default function Home() {
           height: "auto",
         }}
       ></img>
-      <a href="/form">
+      <a href="/formular">
         <Button variant="secondary">Verpackung für neuen Artikel suchen</Button>
       </a>
     </main>

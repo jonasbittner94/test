@@ -94,6 +94,7 @@ def get_top_20_packing_results(data: PackingRequest):
             step_z = helper._pattern_step(elements, "z", item.height)
             effective_volume = min(mesh_volume, step_x * step_y * step_z)
 
+
     boxes = load_boxes_from_csv(
         str(BOXES_CSV),
         data.quantity,
@@ -110,7 +111,7 @@ def get_top_20_packing_results(data: PackingRequest):
         mesh_volume=effective_volume
     )
 
-    results = optimizer.find_top_boxes(limit=200)
+    results = optimizer.find_top_boxes(limit=50)
 
     if not results:
         return {"message": "Keine passende Verpackung gefunden", "results": []}
