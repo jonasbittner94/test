@@ -240,7 +240,7 @@ export default function PackingResultsPage() {
             {"mm "}
           </div>
           <div>
-            <strong>Kapazität:</strong> {current.capacity}{" "}
+            <strong>Kapazität:</strong> {current.lhm_capacity}{" "}
             <span>Artikel pro Verpackung</span>
           </div>
           <div>
@@ -251,7 +251,7 @@ export default function PackingResultsPage() {
             {"mm "}
           </div>
           <div>
-            <strong>LHM-Kapazität:</strong> {current.capacityLHM}{" "}
+            <strong>LHM-Kapazität:</strong> {current.lhm_capacity}{" "}
             <span>Artikel pro LHM C</span>
           </div>
           <div>

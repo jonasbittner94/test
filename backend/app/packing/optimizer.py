@@ -2,6 +2,8 @@ from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass, field
 from math import floor
 from app.packing.models import Item, Box
+from itertools import permutations
+
 
 
 
@@ -14,6 +16,9 @@ class PackingOptimizer:
     mesh_volume: Optional[float] = None
 
     _eps: float = field(default=1e-9, init=False)
+    _lhm_length: float = field(default=600.0, init=False)
+    _lhm_width: float = field(default=400.0, init=False)
+    _lhm_height: float = field(default=220.0, init=False)
 
 
     #
@@ -421,6 +426,7 @@ class PackingOptimizer:
             seen_dimensions.add(dimensions)
 
             if result:# and result["fill_rate"] > 0.5:
+                result["lhm_capacity"] = self._pack_box_into_lhm(box)
                 candidates.append(result)
 
 
@@ -430,5 +436,45 @@ class PackingOptimizer:
         candidates.sort(key=lambda r: r["box_dimensions"]["length"]
                         * r["box_dimensions"]["width"]
                         * r["box_dimensions"]["height"])
+        
 
         return candidates[:limit]
+    
+    def _pack_box_into_lhm(
+        self,
+        box: Box,
+    ):
+        lhm_length = self._lhm_length
+        lhm_width = self._lhm_width
+        lhm_height = self._lhm_height
+        best = None
+
+        for dims in set(permutations((box.length, box.width, box.height))):
+            L, W, H = dims
+
+            if (
+                L > lhm_length + self._eps
+                or W > lhm_width + self._eps
+                or H > lhm_height + self._eps
+            ):
+                continue
+
+            nx = floor((lhm_length + self._eps) / L)
+            ny = floor((lhm_width + self._eps) / W)
+            nz = floor((lhm_height + self._eps) / H)
+            count = nx * ny * nz
+
+            if best is None or count > best["count"]:
+                best = {
+                    "orientation": (L, W, H),
+                    "grid": (nx, ny, nz),
+                    "count": count,
+                }
+
+        if best is None:
+            return None
+
+        L, W, H = best["orientation"]
+        nx, ny, nz = best["grid"]
+
+        return best["count"]

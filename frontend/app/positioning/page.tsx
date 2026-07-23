@@ -3,7 +3,10 @@
 import { useState, useEffect, Suspense, Dispatch, SetStateAction } from "react";
 import type { PackingResponse } from "@/lib/packing";
 import { useSearchParams } from "next/navigation";
-import { ControlPanel } from "../../components/rendering/ControlPanel";
+import {
+  ControlPanel,
+  type RotationMode,
+} from "../../components/rendering/ControlPanel";
 import { Scene } from "../../components/rendering/Scene";
 import { useFileUrl } from "./hooks/useFileUrl";
 import { useRouter } from "next/navigation";
@@ -31,7 +34,7 @@ function RenderingContent() {
   const [spacingX, setSpacingX] = useState(getNumberParam(sp, "spacingX", 0));
   const [spacingY, setSpacingY] = useState(getNumberParam(sp, "spacingY", 0));
   const [layerGap, setLayerGap] = useState(getNumberParam(sp, "layergap", 0));
-  const [rotationAll, setRotationAll] = useState(false);
+  const [rotationMode, setRotationMode] = useState<RotationMode>("right");
   const [resetKey, setResetKey] = useState(0);
   const [boundingBox, setBoundingBox] = useState<
     [number, number, number] | null
@@ -237,6 +240,47 @@ function RenderingContent() {
     return indices;
   })();
 
+  const backIndices = (() => {
+    const byLayer = new Map<number, { idx: number; axis: number }[]>();
+
+    scenePositions.forEach((p, idx) => {
+      const arr = byLayer.get(p[1]) ?? [];
+      arr.push({ idx, axis: p[0] });
+      byLayer.set(p[1], arr);
+    });
+
+    const indices: number[] = [];
+    byLayer.forEach((arr) => {
+      const maxAxis = Math.max(...arr.map((a) => a.axis));
+      arr.forEach((a) => {
+        if (a.axis === maxAxis) indices.push(a.idx);
+      });
+    });
+    return indices;
+  })();
+
+  const topIndices = (() => {
+    const maxY = Math.max(...scenePositions.map((p) => p[1]));
+    return scenePositions
+      .map((p, idx) => ({ idx, y: p[1] }))
+      .filter((entry) => entry.y === maxY)
+      .map((entry) => entry.idx);
+  })();
+
+  const getTargetIndices = () => {
+    switch (rotationMode) {
+      case "all":
+        return scenePositions.map((_, idx) => idx);
+      case "back":
+        return backIndices;
+      case "top":
+        return topIndices;
+      case "right":
+      default:
+        return rightIndices;
+    }
+  };
+
   // Alle drei Achsen-Rotationen teilen dieselbe Logik: entweder nur die rechten
   // Artikel (rightIndices) oder alle (rotationAll) um 90° weiterdrehen.
   const rotate = (setter: Dispatch<SetStateAction<number[]>>) => {
@@ -246,9 +290,7 @@ function RenderingContent() {
           ? [...prev]
           : new Array(scenePositions.length).fill(0);
 
-      const targets = rotationAll
-        ? scenePositions.map((_, idx) => idx)
-        : rightIndices;
+      const targets = getTargetIndices();
 
       targets.forEach((i) => {
         next[i] = next[i] + Math.PI / 2;
@@ -270,7 +312,7 @@ function RenderingContent() {
     setRotationsX(new Array(basePositions.length).fill(0));
     setRotationsY(new Array(basePositions.length).fill(0));
     setRotationsZ(new Array(basePositions.length).fill(0));
-    setRotationAll(false);
+    setRotationMode("right");
     setResetKey((prev) => prev + 1);
   };
 
@@ -293,8 +335,8 @@ function RenderingContent() {
         onRotateZ={handleRotateZ}
         onRotateX={handleRotateX}
         onRotateY={handleRotateY}
-        onRotationAllChange={setRotationAll}
-        rotationAll={rotationAll}
+        onRotationModeChange={setRotationMode}
+        rotationMode={rotationMode}
         resetPosition={resetPosition}
       />
       <Scene

@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import Button from "@/components/ui/button";
-import { gapSize } from "three/tsl";
 
 type SliderProps = {
   label: string;
@@ -11,6 +10,8 @@ type SliderProps = {
   max?: number;
   step?: number;
 };
+
+export type RotationMode = "right" | "back" | "top" | "all";
 
 function Slider({
   label,
@@ -59,8 +60,8 @@ export type ControlPanelProps = {
   onSpacingXChange: (v: number) => void;
   onSpacingYChange: (v: number) => void;
   onLayerGapChange: (v: number) => void;
-  rotationAll: boolean;
-  onRotationAllChange: (checked: boolean) => void;
+  rotationMode: RotationMode;
+  onRotationModeChange: (mode: RotationMode) => void;
   onRotateZ: () => void;
   onRotateX: () => void;
   onRotateY: () => void;
@@ -71,11 +72,11 @@ export function ControlPanel({
   spacingX,
   spacingY,
   layerGap,
-  rotationAll,
   onSpacingXChange,
   onSpacingYChange,
   onLayerGapChange,
-  onRotationAllChange,
+  rotationMode,
+  onRotationModeChange,
   onRotateZ,
   onRotateX,
   onRotateY,
@@ -120,17 +121,26 @@ export function ControlPanel({
         max={200}
       />
       <label
-        htmlFor="rotation-all"
-        style={{ display: "flex", alignItems: "center", gap: 8 }}
+        htmlFor="rotation-mode"
+        style={{ display: "flex", flexDirection: "column", gap: 6 }}
       >
-        <input
-          id="rotation-all"
-          type="checkbox"
-          name="Rotation für alle Artikel:"
-          checked={rotationAll}
-          onChange={(e) => onRotationAllChange(e.target.checked)}
-        />
-        Rotation für alle Artikel
+        <span style={{ fontWeight: 600 }}>Rotation anwenden auf</span>
+        <select
+          id="rotation-mode"
+          value={rotationMode}
+          onChange={(e) => onRotationModeChange(e.target.value as RotationMode)}
+          style={{
+            padding: "8px 10px",
+            border: "1px solid #ccc",
+            borderRadius: 6,
+            background: "#fff",
+          }}
+        >
+          <option value="right">Rechte Artikel</option>
+          <option value="back">Hintere Artikel</option>
+          <option value="top">Obere Artikel</option>
+          <option value="all">Alle Artikel</option>
+        </select>
       </label>
       <Button variant="primary" onClick={onRotateZ}>
         Rotieren 90° um Z-Achse

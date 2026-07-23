@@ -33,6 +33,7 @@ export type PackingResult = {
     nz: number;
   };
   capacity: number;
+  lhm_capacity: number;
   fill_rate: number;
   empty_volume: number;
   used_volume: number;

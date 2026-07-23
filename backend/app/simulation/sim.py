@@ -162,7 +162,7 @@ def estimate_bulk_packing_density(config: SimulationConfig) -> float:
             config,
             boxes=[box],
             runs_per_box=1,
-            use_gui=False,
+            use_gui=True,
             parallel_simulations=False,
             random_seed=None if config.random_seed is None else config.random_seed + 10_000 + index,
         )
