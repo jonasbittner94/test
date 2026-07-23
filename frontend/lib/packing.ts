@@ -9,6 +9,12 @@ export type PositionItem = {
   z: number;
   orientation: [number, number, number];
   rotation_key: RotationKey;
+  pattern_index: number | null;
+  rotation?: {
+    x: number;
+    y: number;
+    z: number;
+  };
 };
 
 export type PackingResult = {

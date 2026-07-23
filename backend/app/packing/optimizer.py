@@ -212,6 +212,21 @@ class PackingOptimizer:
             "z": self._pattern_step(elements, "z", dim0["z"]),
         }
 
+        pattern_lookup = {}
+        for element in elements:
+            ix = int(round(element["position"]["x"] / step0["x"])) if step0["x"] > self._eps else 0
+            iy = int(round(element["position"]["y"] / step0["y"])) if step0["y"] > self._eps else 0
+            iz = int(round(element["position"]["z"] / step0["z"])) if step0["z"] > self._eps else 0
+
+            pattern_lookup[(ix, iy, iz)] = {
+                "rotation": element.get("rotation", {"x": 0.0, "y": 0.0, "z": 0.0}),
+                "index": element["index"],
+            }
+
+        pattern_nx = max((key[0] for key in pattern_lookup.keys()), default=0) + 1
+        pattern_ny = max((key[1] for key in pattern_lookup.keys()), default=0) + 1
+        pattern_nz = max((key[2] for key in pattern_lookup.keys()), default=0) + 1
+
         if any(d <= self._eps for d in dim0.values()):
             return None
         
@@ -324,6 +339,21 @@ class PackingOptimizer:
                     continue
 
                 px, py, pz = point
+                ix = int(round(px / eL)) if eL > self._eps else 0
+                iy = int(round(py / eW)) if eW > self._eps else 0
+                iz = int(round(pz / eH)) if eH > self._eps else 0
+
+                pattern_key = (
+                    ix % pattern_nx if pattern_nx > 0 else 0,
+                    iy % pattern_ny if pattern_ny > 0 else 0,
+                    iz % pattern_nz if pattern_nz > 0 else 0,
+                )
+
+                pattern_match = pattern_lookup.get(
+                    pattern_key,
+                    {"rotation": {"x": 0.0, "y": 0.0, "z": 0.0}, "index": None},
+                )
+
                 placements.append(
                     {
                         "x0": px,
@@ -341,9 +371,9 @@ class PackingOptimizer:
                         "z": pz + H / 2,
                         "orientation": full_dims,
                         "rotation_key": rotation_key,
-                        "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
-                        "pattern_index": None,
-                    }
+                        "rotation": pattern_match["rotation"],
+                        "pattern_index": pattern_match["index"],
+                }
                 )
 
                 extreme_points.discard(point)
@@ -401,7 +431,7 @@ class PackingOptimizer:
                 "nz": nz,
             },
             "capacity": capacity,
-            "capacityLHM": self.quantity * box.capacityLHM,
+            "lhm_capacity": self.quantity * box.lhm_capacity,
             "fill_rate": fill_rate,
             "empty_volume": empty_volume,
             "used_volume": used_volume,

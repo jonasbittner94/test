@@ -46,7 +46,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,s
                             length=float(row["length"]),
                             width=float(row["width"]),
                             height=float(row["height"]),
-                            capacityLHM=_safe_float(row["Amount per bin box (LHM C)"])
+                            lhm_capacity=_safe_float(row["Amount per bin box (LHM C)"])
                         )
                 )
                     

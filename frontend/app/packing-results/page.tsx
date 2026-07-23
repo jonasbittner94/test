@@ -23,15 +23,40 @@ function ArticleMesh({
   modelUrl: string;
   scaledLength: number;
 }) {
-  const rotation = getRotationFromKey(item.rotation_key);
+  const fallbackRotation = getRotationFromKey(item.rotation_key);
+
+  const baseEuler = new THREE.Euler(
+    THREE.MathUtils.degToRad(fallbackRotation[0]),
+    THREE.MathUtils.degToRad(fallbackRotation[1]),
+    THREE.MathUtils.degToRad(fallbackRotation[2]),
+    "XYZ"
+  );
+
+  const localEuler = new THREE.Euler(
+    item.pattern_index !== null && item.rotation ? item.rotation.x : 0,
+    item.pattern_index !== null && item.rotation ? item.rotation.y : 0,
+    item.pattern_index !== null && item.rotation ? item.rotation.z : 0,
+    "XYZ"
+  );
+
+  const baseQuaternion = new THREE.Quaternion().setFromEuler(baseEuler);
+  const localQuaternion = new THREE.Quaternion().setFromEuler(localEuler);
+
+  // Erst Basisrotation, dann lokale Rotation um die mitgedrehten Objektachsen
+  const finalQuaternion = baseQuaternion.clone().multiply(localQuaternion);
+
+  const finalEuler = new THREE.Euler().setFromQuaternion(
+    finalQuaternion,
+    "XYZ"
+  );
 
   return (
     <StlModel
       url={modelUrl}
       position={[item.x, item.y, item.z]}
-      rotationX={THREE.MathUtils.degToRad(rotation[0])}
-      rotationY={THREE.MathUtils.degToRad(rotation[1])}
-      rotationZ={THREE.MathUtils.degToRad(rotation[2])}
+      rotationX={finalEuler.x}
+      rotationY={finalEuler.y}
+      rotationZ={finalEuler.z}
       scaled_length={scaledLength}
       color="#49b749"
       castShadow
