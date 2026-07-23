@@ -7,7 +7,7 @@ type SimulationBox = {
   length: number;
   width: number;
   height: number;
-  capacityLHM: number;
+  lhm_capacity?: number;
 };
 
 type SimulationResult = {
@@ -31,6 +31,7 @@ type SortMode = "filling" | "lhm";
 export default function PackingResultsPage() {
   const [data, setData] = useState<SimulationResponse | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("filling");
+  const [rerunBoxName, setRerunBoxName] = useState<string | null>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem("simulationResult");
@@ -44,6 +45,65 @@ export default function PackingResultsPage() {
       console.error("Konnte Simulationsergebnisse nicht lesen:", error);
     }
   }, []);
+
+  async function handleRerun(result: SimulationResult) {
+    try {
+      setRerunBoxName(result.box.name);
+
+      const rawRequest = localStorage.getItem("simulationRequest");
+      if (!rawRequest) {
+        alert("Keine ursprünglichen Simulationsdaten gefunden.");
+        return;
+      }
+
+      const simulationRequest = JSON.parse(rawRequest);
+
+      const response = await fetch(
+        "http://localhost:8000/simulation/run-single-box",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            config: simulationRequest,
+            box_name: result.box.name,
+            estimated_density: result.packing_density_percent / 100,
+            box: {
+              name: result.box.name,
+              length: result.box.length,
+              width: result.box.width,
+              height: result.box.height,
+              lhm_capacity: result.box.lhm_capacity ?? 0,
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error("Backend-Fehler:", response.status, errorData);
+
+        throw new Error(
+          errorData
+            ? JSON.stringify(errorData, null, 2)
+            : `Erneute Simulation fehlgeschlagen (${response.status}).`
+        );
+      }
+
+      await response.json();
+      console.log("GUI-Simulation für Box gestartet:", result.box.name);
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Simulation konnte nicht erneut gestartet werden."
+      );
+    } finally {
+      setRerunBoxName(null);
+    }
+  }
 
   // Sortierung: niedrigste relative Fuellhoehe zuerst (meiste Reserve)
   // bzw. hoechste Artikel pro LHM zuerst
@@ -154,6 +214,26 @@ export default function PackingResultsPage() {
               <strong>Packdichte:</strong>{" "}
               {result.packing_density_percent.toFixed(2)} %
             </div>
+            <button
+              type="button"
+              onClick={() => handleRerun(result)}
+              disabled={rerunBoxName === result.box.name}
+              style={{
+                marginTop: "12px",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "none",
+                background: "#0f172a",
+                color: "#fff",
+                cursor:
+                  rerunBoxName === result.box.name ? "not-allowed" : "pointer",
+                opacity: rerunBoxName === result.box.name ? 0.7 : 1,
+              }}
+            >
+              {rerunBoxName === result.box.name
+                ? "Simulation läuft..."
+                : "Simulation für diese Box erneut starten"}
+            </button>
           </div>
         ))}
       </section>

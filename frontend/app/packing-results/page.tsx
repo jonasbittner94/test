@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/ui/button";
-import { Canvas, useLoader } from "@react-three/fiber";
-import { OrbitControls, GizmoHelper, Edges } from "@react-three/drei";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Edges } from "@react-three/drei";
 import * as THREE from "three";
 import { StlModel } from "../../components/rendering/STLModel";
 import {

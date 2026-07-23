@@ -76,6 +76,9 @@ function RenderingContent() {
 
   const [scenePositions, setScenePositions] = useState(basePositions);
 
+  const hasNegativeSpacing = spacingX < 0 || spacingY < 0 || layerGap < 0;
+  const hasScaledLength = scaledLength !== undefined && scaledLength > 0;
+
   const [rotationsZ, setRotationsZ] = useState<number[]>(() =>
     new Array(scenePositions.length).fill(0)
   );
@@ -319,7 +322,7 @@ function RenderingContent() {
   return (
     <div
       style={{
-        width: "80%",
+        width: "100%",
         height: "80dvh",
         alignSelf: "self-start",
         backgroundColor: "#FFFFFF",
@@ -339,19 +342,78 @@ function RenderingContent() {
         rotationMode={rotationMode}
         resetPosition={resetPosition}
       />
-      <Scene
-        url={activeUrl}
-        positions={scenePositions}
-        rotationsZ={rotationsZ}
-        color={color}
-        castShadow={castShadow}
-        receiveShadow={receiveShadow}
-        rotationsX={rotationsX}
-        rotationsY={rotationsY}
-        onBoundingBoxChange={setBoundingBox}
-        resetKey={resetKey}
-        scaled_length={scaledLength}
-      />
+
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+        }}
+      >
+        <Scene
+          url={activeUrl}
+          positions={scenePositions}
+          rotationsZ={rotationsZ}
+          color={color}
+          castShadow={castShadow}
+          receiveShadow={receiveShadow}
+          rotationsX={rotationsX}
+          rotationsY={rotationsY}
+          onBoundingBoxChange={setBoundingBox}
+          resetKey={resetKey}
+          scaled_length={scaledLength}
+        />
+
+        {(hasNegativeSpacing || hasScaledLength) && (
+          <div
+            style={{
+              position: "absolute",
+              top: "16px",
+              right: "16px",
+              width: "280px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              zIndex: 10,
+            }}
+          >
+            {hasNegativeSpacing && (
+              <div
+                style={{
+                  padding: "12px 16px",
+                  backgroundColor: "#f8d7da",
+                  color: "#842029",
+                  border: "1px solid #f5c2c7",
+                  borderRadius: "8px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+              >
+                Warnung: Die Hüllgeometrien der Artikel überschneiden sich
+                jetzt. Bitte achten Sie darauf, dass die echten Geometrien sich
+                nicht berühren!
+              </div>
+            )}
+
+            {hasScaledLength && (
+              <div
+                style={{
+                  padding: "12px 16px",
+                  backgroundColor: "#f8d7da",
+                  color: "#842029",
+                  border: "1px solid #f5c2c7",
+                  borderRadius: "8px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+              >
+                Hinweis: Es handelt sich um eine skallierte Version der
+                CAD-Datei. Die Artikelgeometrie kann vom echten Artikel
+                abweichen.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {packingError && (
         <p style={{ color: "red", marginTop: "12px" }}>{packingError}</p>
       )}
@@ -371,7 +433,12 @@ function RenderingContent() {
       )}
 
       <div
-        style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          width: "100%",
+          marginTop: "12px",
+        }}
       >
         <Button
           variant="primary"

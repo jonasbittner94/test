@@ -88,7 +88,6 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,s
                         )
                     
                 )
-                    print(row)
             boxes.sort(key=lambda box: box.volume)
             return boxes[:20]
 

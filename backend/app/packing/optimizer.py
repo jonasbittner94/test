@@ -17,9 +17,6 @@ class PackingOptimizer:
     mesh_volume: Optional[float] = None
 
     _eps: float = field(default=1e-9, init=False)
-    _lhm_length: float = field(default=600.0, init=False)
-    _lhm_width: float = field(default=400.0, init=False)
-    _lhm_height: float = field(default=220.0, init=False)
 
 
     #
@@ -232,7 +229,7 @@ class PackingOptimizer:
         
         unique_orients = self._unique_orientations()
 
-        # Fuer jede Box die beste Orientierung suchen (meiste Artikel aus x,z Ebene)
+        # Fuer jede Box die beste Orientierung suchen
         best = None
         for orientation in self.item.orientations():
             a, b, c = orientation["rotation_key"]
@@ -294,9 +291,9 @@ class PackingOptimizer:
             excess_capacity = total_capacity - self.quantity
 
             score = (
-                -estimated_used_volume,
                 -excess_capacity,
-                capacity,
+                -estimated_used_volume,
+                -capacity,
             )
 
 
@@ -331,7 +328,7 @@ class PackingOptimizer:
 
         while len(positions) < self.quantity and extreme_points:
             placed_in_round = False
-            for point in sorted(extreme_points, key=lambda p: (p[1], p[2], p[0])):
+            for point in sorted(extreme_points, key=lambda p: (p[0], p[2], p[1])):
                 extreme_points.discard(point)
         
                 # 2. Prüfen, ob er überhaupt in die Box passt und nicht kollidiert

@@ -141,6 +141,8 @@ export default function FormPage() {
         stability: formData.stability,
       };
 
+      localStorage.setItem("simulationRequest", JSON.stringify(payload));
+
       const response = await fetch("http://localhost:8000/simulation/run", {
         method: "POST",
         headers: {
@@ -150,10 +152,10 @@ export default function FormPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-
+        const errorText = await response.text();
+        console.error("Backend-Fehler:", response.status, errorText);
         throw new Error(
-          errorData?.detail ?? "Simulation konnte nicht durchgeführt werden."
+          `Erneute Simulation fehlgeschlagen (${response.status}).`
         );
       }
 
@@ -430,7 +432,7 @@ export default function FormPage() {
               Simulation läuft...
             </>
           ) : (
-            "Rendern"
+            "Verpackung suchen"
           )}
         </Button>
         {simulationError && (

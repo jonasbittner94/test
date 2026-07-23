@@ -2,8 +2,13 @@
 
 from fastapi import APIRouter, HTTPException
 import traceback
-
-from app.simulation.sim import PackagingSimulation, SimulationConfig
+from pydantic import BaseModel
+from app.simulation.sim import (
+    PackagingSimulation,
+    SimulationConfig,
+    estimate_bulk_packing_density,
+)
+from app.packing.models import Box
 from app.packing.box_loader import load_boxes_from_csv
 from app.packing.lhm import get_lhm_capacity
 from app.core.config import BOXES_CSV
@@ -13,13 +18,18 @@ from app.geometry import (
     ensure_vhacd_collision_mesh,
     resolve_converted_stl,
 )
-from app.simulation.sim import (
-    PackagingSimulation,
-    SimulationConfig,
-    estimate_bulk_packing_density,
-)
+class RequestedBox(BaseModel):
+    name: str
+    length: int
+    width: int
+    height: int
+    lhm_capacity: int | None = None
 
-
+class SingleBoxSimulationRequest(BaseModel):
+    config: SimulationConfig
+    box_name: str
+    estimated_density: float | None = None
+    box: RequestedBox
 
 
 router = APIRouter(
@@ -42,6 +52,8 @@ def run_simulation(config: SimulationConfig):
     # Konvexe Zerlegung fuer formtreue Kollision (gecacht, einmalig pro STL).
     collision_path = ensure_vhacd_collision_mesh(stl_path)
     stability = config.stability
+
+    print("Mesh Volume:",mesh_volume)
 
     reference_config = replace(
         config,
@@ -72,6 +84,53 @@ def run_simulation(config: SimulationConfig):
 
     try:
         simulation = PackagingSimulation(config)
+        return simulation.run()
+    except Exception as error:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+    
+
+@router.post("/run-single-box")
+def run_single_box_simulation(request: SingleBoxSimulationRequest):
+    config = request.config
+    estimated_density = request.estimated_density
+    requested_box = request.box
+
+    try:
+        stl_path = resolve_converted_stl(config.stl_file)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+    mesh_volume = compute_scaled_volume_mm3(stl_path, config.item.length)
+    collision_path = ensure_vhacd_collision_mesh(stl_path)
+
+    selected_box = Box(
+        name=requested_box.name,
+        length=requested_box.length,
+        width=requested_box.width,
+        height=requested_box.height,
+        lhm_capacity=requested_box.lhm_capacity or 0,
+    )
+
+
+    if not selected_box.lhm_capacity:
+        selected_box.lhm_capacity = int(get_lhm_capacity(selected_box))
+
+    single_box_config = replace(
+        config,
+        boxes=[selected_box],
+        mesh_volume=mesh_volume,
+        stl_file=str(stl_path),
+        collision_file=str(collision_path),
+        parallel_simulations=False,
+        use_gui=True,
+    )
+
+    try:
+        simulation = PackagingSimulation(single_box_config)
         return simulation.run()
     except Exception as error:
         traceback.print_exc()

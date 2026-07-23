@@ -327,54 +327,92 @@ class PackagingSimulation:
     def _create_box(self) -> None:
         cfg = self.config
         wall_height = max(cfg.box_z, self._get_spawn_wall_height())
+        visual_height = cfg.box_z
 
         # Boden
-        collision_shape = p.createCollisionShape(
+        floor_collision_shape = p.createCollisionShape(
             p.GEOM_BOX,
             halfExtents=[cfg.box_x / 2, cfg.box_y / 2, cfg.wall_thickness / 2],
         )
+        floor_visual_shape = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[cfg.box_x / 2, cfg.box_y / 2, cfg.wall_thickness / 2],
+            rgbaColor=[0.85, 0.85, 0.85, 1.0],
+        )
 
         p.createMultiBody(
             baseMass=0,
-            baseCollisionShapeIndex=collision_shape,
+            baseCollisionShapeIndex=floor_collision_shape,
+            baseVisualShapeIndex=floor_visual_shape,
             basePosition=[0, 0, cfg.wall_thickness / 2],
         )
 
-        # Wände X-Richtung
-
+        # Wände X-Richtung:
+        # Kollision = hohe Hilfswand, Visual = echte Boxhöhe
         wall_collision_x = p.createCollisionShape(
             p.GEOM_BOX,
-            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, wall_height/2],
+            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, wall_height / 2],
+        )
+        wall_visual_x = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[cfg.wall_thickness / 2, cfg.box_y / 2, visual_height / 2],
+            rgbaColor=[0.2, 0.6, 1.0, 0.35],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_x,
-            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_height/2],
+            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, wall_height / 2],
         )
         p.createMultiBody(
             baseMass=0,
-            baseCollisionShapeIndex=wall_collision_x,
-            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_height/2],
+            baseVisualShapeIndex=wall_visual_x,
+            basePosition=[cfg.box_x / 2 + cfg.wall_thickness / 2, 0, visual_height / 2],
         )
 
-        # Wände Y-Richtung
+        p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=wall_collision_x,
+            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, wall_height / 2],
+        )
+        p.createMultiBody(
+            baseMass=0,
+            baseVisualShapeIndex=wall_visual_x,
+            basePosition=[-cfg.box_x / 2 - cfg.wall_thickness / 2, 0, visual_height / 2],
+        )
 
-        
+        # Wände Y-Richtung:
+        # Kollision = hohe Hilfswand, Visual = echte Boxhöhe
         wall_collision_y = p.createCollisionShape(
             p.GEOM_BOX,
-            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, wall_height/2],
+            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, wall_height / 2],
+        )
+        wall_visual_y = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[cfg.box_x / 2, cfg.wall_thickness / 2, visual_height / 2],
+            rgbaColor=[0.2, 0.6, 1.0, 0.35],
         )
 
         p.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
-            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_height/2],
+            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, wall_height / 2],
         )
         p.createMultiBody(
             baseMass=0,
+            baseVisualShapeIndex=wall_visual_y,
+            basePosition=[0, cfg.box_y / 2 + cfg.wall_thickness / 2, visual_height / 2],
+        )
+
+        p.createMultiBody(
+            baseMass=0,
             baseCollisionShapeIndex=wall_collision_y,
-            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_height/2],
+            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, wall_height / 2],
+        )
+        p.createMultiBody(
+            baseMass=0,
+            baseVisualShapeIndex=wall_visual_y,
+            basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, visual_height / 2],
         )
 
     def _get_spawn_wall_height(self) -> float:
@@ -581,7 +619,6 @@ class PackagingSimulation:
             "total_article_volume_cm3": total_article_volume * 1_000_000,
             "used_box_volume_cm3": used_box_volume * 1_000_000,
             "packing_density_percent": packing_density * 100,
-            "box_utilization_percent": box_utilization * 100,
             "fits_in_box": fits_in_box,
         }
 
