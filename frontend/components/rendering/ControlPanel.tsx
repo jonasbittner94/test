@@ -19,7 +19,7 @@ function Slider({
   onChange,
   min = 5,
   max = 200,
-  step = 1,
+  step = 1 / 2,
 }: SliderProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -35,17 +35,31 @@ function Slider({
       <div style={{ display: "flex", gap: 10 }}>
         <Button
           variant="primary"
-          onClick={() => onChange(Math.max(min, value - 1))}
-          style={{ width: 40, height: 40 }}
+          onClick={() => onChange(Math.max(min, value - step))}
+          style={{
+            minWidth: 56,
+            height: 40,
+            padding: "0 10px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          -1
+          -{step}
         </Button>
         <Button
           variant="primary"
-          onClick={() => onChange(Math.max(min, value + 1))}
-          style={{ width: 40, height: 40 }}
+          onClick={() => onChange(Math.max(min, value + step))}
+          style={{
+            minWidth: 56,
+            height: 40,
+            padding: "0 10px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          +1
+          +{step}
         </Button>
       </div>
       <span style={{ fontSize: 12, color: "#333" }}>{value.toFixed(2)}</span>
