@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass, field
 from math import floor
 from app.packing.models import Item, Box
+from app.packing.lhm import get_lhm_capacity
 from itertools import permutations
 
 
@@ -426,7 +427,7 @@ class PackingOptimizer:
             seen_dimensions.add(dimensions)
 
             if result:# and result["fill_rate"] > 0.5:
-                result["lhm_capacity"] = self._pack_box_into_lhm(box)
+                result["lhm_capacity"] = get_lhm_capacity(box)
                 candidates.append(result)
 
 
@@ -440,41 +441,3 @@ class PackingOptimizer:
 
         return candidates[:limit]
     
-    def _pack_box_into_lhm(
-        self,
-        box: Box,
-    ):
-        lhm_length = self._lhm_length
-        lhm_width = self._lhm_width
-        lhm_height = self._lhm_height
-        best = None
-
-        for dims in set(permutations((box.length, box.width, box.height))):
-            L, W, H = dims
-
-            if (
-                L > lhm_length + self._eps
-                or W > lhm_width + self._eps
-                or H > lhm_height + self._eps
-            ):
-                continue
-
-            nx = floor((lhm_length + self._eps) / L)
-            ny = floor((lhm_width + self._eps) / W)
-            nz = floor((lhm_height + self._eps) / H)
-            count = nx * ny * nz
-
-            if best is None or count > best["count"]:
-                best = {
-                    "orientation": (L, W, H),
-                    "grid": (nx, ny, nz),
-                    "count": count,
-                }
-
-        if best is None:
-            return None
-
-        L, W, H = best["orientation"]
-        nx, ny, nz = best["grid"]
-
-        return best["count"]

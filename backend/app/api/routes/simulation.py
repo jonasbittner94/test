@@ -5,6 +5,7 @@ import traceback
 
 from app.simulation.sim import PackagingSimulation, SimulationConfig
 from app.packing.box_loader import load_boxes_from_csv
+from app.packing.lhm import get_lhm_capacity
 from app.core.config import BOXES_CSV
 from dataclasses import replace
 from app.geometry import (
@@ -53,6 +54,13 @@ def run_simulation(config: SimulationConfig):
 
 
     boxes = load_boxes_from_csv(str(BOXES_CSV), config.item_quantity, bulk=True, mesh_volume=mesh_volume,stability=stability,estimated_packing_density=estimated_packing_density,)
+
+    for box in boxes:
+        lhm_capacity = get_lhm_capacity(box)
+        box.lhm_capacity = int(lhm_capacity)
+        print(box.lhm_capacity)
+
+
 
     config = replace(
         config,

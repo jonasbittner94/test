@@ -130,7 +130,7 @@ export default function PackingResultsPage() {
 
     if (sortMode === "lhm") {
       list.sort(
-        (a, b) => b.capacityLHM - a.capacityLHM || boxVolume(a) - boxVolume(b)
+        (a, b) => b.lhm_capacity - a.lhm_capacity || boxVolume(a) - boxVolume(b)
       );
     } else {
       list.sort((a, b) => boxVolume(a) - boxVolume(b));
@@ -240,18 +240,20 @@ export default function PackingResultsPage() {
             {"mm "}
           </div>
           <div>
-            <strong>Kapazität:</strong> {current.lhm_capacity}{" "}
+            <strong>Kapazität:</strong> {current.capacity}{" "}
             <span>Artikel pro Verpackung</span>
           </div>
+          {/* 
           <div>
             <strong>Arikelmaße:</strong>{" "}
             {current.article_dims.length.toFixed(2)}
             {"mm "} × {current.article_dims.width.toFixed(2)}
             {"mm "} × {current.article_dims.height.toFixed(2)}
             {"mm "}
-          </div>
+          </div>*/}
           <div>
-            <strong>LHM-Kapazität:</strong> {current.lhm_capacity}{" "}
+            <strong>LHM-Kapazität:</strong>{" "}
+            {current.lhm_capacity * current.positions.length}{" "}
             <span>Artikel pro LHM C</span>
           </div>
           <div>
@@ -261,6 +263,7 @@ export default function PackingResultsPage() {
           <div>
             <strong>Füllgrad:</strong> {(current.fill_rate * 100).toFixed(2)}%
           </div>
+          {/* 
           <div>
             <strong>Genutztes Volumen:</strong> {current.used_volume.toFixed(2)}{" "}
             <span>mm²</span>
@@ -268,7 +271,7 @@ export default function PackingResultsPage() {
           <div>
             <strong>Leerraum:</strong> {current.empty_volume.toFixed(2)}{" "}
             <span>mm²</span>
-          </div>
+          </div>*/}
         </div>
       </div>
 

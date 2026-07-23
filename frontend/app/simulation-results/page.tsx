@@ -133,11 +133,6 @@ export default function PackingResultsPage() {
               {result.box.width} mm × {result.box.height} mm
             </div>
 
-            <div>
-              <strong>LHM-Kapazität:</strong> {result.box.capacityLHM}
-              {" Artikel pro LHM"}
-            </div>
-
             {result.articles_per_lhm !== undefined && (
               <div>
                 <strong>Artikel pro LHM:</strong>{" "}

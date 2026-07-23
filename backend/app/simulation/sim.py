@@ -114,14 +114,14 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
 
         # Artikel pro Ladehilfsmittel: die komplette VPE-Menge passt in die
         # Box, also Menge x Boxen pro LHM (Spalte "Amount per bin box")
-        result["articles_per_lhm"] = config.item_quantity * box.capacityLHM
+        result["articles_per_lhm"] = config.item_quantity * box.lhm_capacity
 
         result["box"] = {
             "name": box.name,
             "length": box.length,
             "width": box.width,
             "height": box.height,
-            "capacityLHM": box.capacityLHM*config.item_quantity,
+            "lhm_capacity": box.lhm_capacity*config.item_quantity,
         }
 
         return result
@@ -150,9 +150,9 @@ def estimate_bulk_packing_density(config: SimulationConfig) -> float:
     im Bereich [0, 1].
     """
     reference_boxes = [
-        Box(name="ref_small", length=100, width=50, height=500, capacityLHM=1),
-        Box(name="ref_medium", length=200, width=100, height=500, capacityLHM=1),
-        Box(name="ref_large", length=400, width=300, height=500, capacityLHM=1),
+        Box(name="ref_small", length=100, width=50, height=500, lhm_capacity=1),
+        Box(name="ref_medium", length=200, width=100, height=500, lhm_capacity=1),
+        Box(name="ref_large", length=400, width=300, height=500, lhm_capacity=1),
     ]
 
     densities: list[float] = []
@@ -162,7 +162,7 @@ def estimate_bulk_packing_density(config: SimulationConfig) -> float:
             config,
             boxes=[box],
             runs_per_box=1,
-            use_gui=True,
+            use_gui=False,
             parallel_simulations=False,
             random_seed=None if config.random_seed is None else config.random_seed + 10_000 + index,
         )

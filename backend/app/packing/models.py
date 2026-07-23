@@ -1,6 +1,4 @@
 ﻿from dataclasses import dataclass
-from itertools import permutations
-
 
 @dataclass
 class Item:
@@ -30,8 +28,7 @@ class Box:
     length: float
     width: float
     height: float
-    capacityLHM:float
-
+    lhm_capacity:float
     @property
     def volume(self):
         return self.length * self.width * self.height
