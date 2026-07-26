@@ -1,97 +1,98 @@
-'''Logik zum einlesen der Verpackungen'''
+'''Logik zum Einlesen der Verpackungen aus der CSV.'''
 
 import csv
 from pathlib import Path
 from app.packing.optimizer import Box
 
-#float nur speichern, wenn Wert vorhanden, sonst 0
+
 def _safe_float(value):
+    """float aus der csv lesen; leere oder kaputte zellen werden zu 0.0."""
     try:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
 
 
-def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,stability:str,estimated_packing_density: float | None = None,
+def _matches_stability(row, stability: str) -> bool:
+    """true, wenn die box zur gewuenschten stabilitaet passt (oder egal ist)."""
+    if stability in ("", "beliebig"):
+        return True
+    return row.get("Stabilität", "") == stability
+
+
+def _box_from_row(row) -> Box:
+    return Box(
+        name=row["Object Name"],
+        length=float(row["length"]),
+        width=float(row["width"]),
+        height=float(row["height"]),
+        lhm_capacity=_safe_float(row["Amount per bin box (LHM C)"]),
+    )
+
+
+def _load_pattern_boxes(rows, total_article_volume: float, stability: str) -> list[Box]:
+    """packmuster-pfad: nur boxen, in die die artikel volumenmaessig passen."""
+    boxes: list[Box] = []
+    for row in rows:
+        if not _matches_stability(row, stability):
+            continue
+        box = _box_from_row(row)
+        if total_article_volume <= box.volume:
+            boxes.append(box)
+    return boxes
+
+
+def _load_bulk_boxes(
+    rows,
+    total_article_volume: float,
+    stability: str,
+    estimated_packing_density: float | None,
+) -> list[Box]:
+    """schuettgut-pfad: zusaetzlich ueber die geforderte packdichte filtern.
+    zufallsschuettung erreicht real nur ~35-55 % dichte -- boxen, die eine
+    zu hohe oder eine sehr niedrige dichte verlangen, koennen nie sinnvoll passen."""
+    if estimated_packing_density is not None:
+        upper_density_limit = estimated_packing_density * 1.3
+    else:
+        upper_density_limit = 0.40
+    lower_density_limit = 0.15
+
+    boxes: list[Box] = []
+    for row in rows:
+        if not _matches_stability(row, stability):
+            continue
+        box = _box_from_row(row)
+        required_density = total_article_volume / box.volume if box.volume > 0 else 0
+        if (
+            total_article_volume <= box.volume
+            and lower_density_limit < required_density < upper_density_limit
+        ):
+            boxes.append(box)
+    return boxes
+
+
+def load_boxes_from_csv(
+    csv_path: str,
+    quantity: int,
+    bulk: bool,
+    mesh_volume: float,
+    stability: str,
+    estimated_packing_density: float | None = None,
 ) -> list[Box]:
     path = Path(csv_path)
-    boxes: list[Box] = []
 
-
-    article_volume=mesh_volume*quantity
-
-    print(article_volume)
+    # gesamtvolumen aller artikel einer vpe -> grober vorfilter fuer die boxen
+    total_article_volume = mesh_volume * quantity
 
     with path.open(newline="", encoding="utf-8") as csvfile:
-        reader = csv.DictReader(csvfile)
+        rows = list(csv.DictReader(csvfile))
 
-    #Packmuster-Pfad
-        if bulk is False:
-            for row in reader:
-                row_stability = row.get("Stabilität", "")
+    if bulk:
+        boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
+        limit = 20
+    else:
+        boxes = _load_pattern_boxes(rows, total_article_volume, stability)
+        limit = 200
 
-                if stability != "beliebig" and stability!="" and row_stability != stability:
-                    continue
-                
-                #Vorfilerung
-                length=float(row["length"])
-                width=float(row["width"])
-                height=float(row["height"])
-                box_volume=length*width*height
-
-                if article_volume<=box_volume:
-                    boxes.append(
-                        Box(
-                            name=row["Object Name"],
-                            length=float(row["length"]),
-                            width=float(row["width"]),
-                            height=float(row["height"]),
-                            lhm_capacity=_safe_float(row["Amount per bin box (LHM C)"])
-                        )
-                )
-                    
-            boxes.sort(key=lambda box: box.volume)
-            return boxes[:200]
-        
-        #Schüttgut-Pfad
-        else:
-            upper_density_limit = (
-                estimated_packing_density * 1.3
-                if estimated_packing_density is not None
-                else 0.40
-            )
-            lower_density_limit = 0.15
-            for row in reader:
-                row_stability = row.get("Stabilität", "")
-
-                if stability != "beliebig" and stability!="" and row_stability != stability:
-                    continue
-                
-                length=float(row["length"])
-                width=float(row["width"])
-                height=float(row["height"])
-                box_volume=length*width*height
-                required_density = article_volume / box_volume if box_volume > 0 else 0
-
-                # Zufallsschuettung erreicht real nur ~35-55 % Dichte. Boxen mit
-                # theoretischer Auslastung >0.55 koennen daher nie passen; die
-                # Untergrenze 0.25 sortiert stark ueberdimensionierte Boxen aus.
-                if (article_volume<=box_volume and required_density > lower_density_limit
-                and required_density < upper_density_limit):
-                    boxes.append(
-                        Box(
-                            name=row["Object Name"],
-                            length=float(row["length"]),
-                            width=float(row["width"]),
-                            height=float(row["height"]),
-                            lhm_capacity=_safe_float(row["Amount per bin box (LHM C)"])
-                        )
-                    
-                )
-            boxes.sort(key=lambda box: box.volume)
-            return boxes[:20]
-
-
-
-                
-    
+    boxes.sort(key=lambda box: box.volume)
+    return boxes[:limit]
