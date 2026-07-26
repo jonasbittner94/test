@@ -143,9 +143,9 @@ def _get_best_valid_results(simulation_results: list[dict], limit: int | None = 
         if result.get("fits_in_box", False)
     ]
 
-    # Beste Box = kleinste Box in die alle Artikel passen
+    # Beste Box = hoechster Fuellgrad = kleinste Box, in die alle Artikel passen
     valid_results.sort(
-        key=lambda result: result.get("box_utilization_percent", 0),
+        key=lambda result: result.get("fill_rate_percent", 0),
         reverse=True,
     )
 
@@ -455,14 +455,33 @@ class PackagingSimulation:
             basePosition=[0, -cfg.box_y / 2 - cfg.wall_thickness / 2, visual_center_z],
         )
 
+    def _spawn_grid(self) -> tuple[int, int, float, float]:
+        """Raster fuer verteiltes Spawnen ueber die GESAMTE Grundflaeche.
+
+        Der Rand wird um die halbe Artikelgroesse freigehalten, damit die
+        Artikel beim Spawnen nicht in die (Kollisions-)Wand ragen.
+        Rueckgabe: (cols_x, cols_y, ux, uy) mit ux/uy = nutzbare halbe Ausdehnung.
+        """
+        cfg = self.config
+        gap = 0.005  # 5 mm Luft zwischen den Rasterzellen
+        cell = max(self.article_x, self.article_y) + gap
+        margin = 0.5 * max(self.article_x, self.article_y)
+
+        ux = max(cell / 2, cfg.box_x / 2 - margin)
+        uy = max(cell / 2, cfg.box_y / 2 - margin)
+        cols_x = max(1, int((2 * ux) // cell))
+        cols_y = max(1, int((2 * uy) // cell))
+        return cols_x, cols_y, ux, uy
+
     def _get_spawn_wall_height(self) -> float:
-            cfg = self.config
+        cfg = self.config
 
-            layer = (cfg.item_quantity - 1) % 6
-            stack = (cfg.item_quantity - 1) // 6
-            highest_spawn_z = cfg.box_z + 0.03 + layer * (self.article_z + 0.01) + stack * 0.01
+        cols_x, cols_y, _, _ = self._spawn_grid()
+        per_layer = max(1, cols_x * cols_y)
+        highest_layer = (cfg.item_quantity - 1) // per_layer
+        highest_spawn_z = cfg.box_z + 0.03 + highest_layer * (self.article_z + 0.01)
 
-            return highest_spawn_z + self.article_z + 0.05          
+        return highest_spawn_z + self.article_z + 0.05
 
     def _create_article_shapes(self) -> None:
         cfg = self.config
@@ -487,21 +506,38 @@ class PackagingSimulation:
 
         print(f"Spawne {cfg.item_quantity} Artikel...")
 
-        #random Platz in x-y-Ebene
-        for i in range(cfg.item_quantity):
-            x_pos = random.uniform(-cfg.box_x / 3, cfg.box_x / 3)
-            y_pos = random.uniform(-cfg.box_y / 3, cfg.box_y / 3)
+        # Verteiltes Spawnen ueber die gesamte Grundflaeche (verwuerfeltes Raster):
+        # jede Rasterzelle bekommt einen Artikel, volle Lagen stapeln nach oben.
+        # Vermeidet den zentralen "Huegel" und die Kollisions-Explosion tief
+        # gestapelter Saeulen, bleibt aber innerhalb der Kollisionswaende.
+        cols_x, cols_y, ux, uy = self._spawn_grid()
+        per_layer = cols_x * cols_y
+        step_x = 2 * ux / cols_x
+        step_y = 2 * uy / cols_y
 
-            #Kollisions-Explosion vermeiden: Artikel in 10er-Blöcken stapeln, mit 2mm Abstand
-            layer = i % 6
-            stack = i // 6
-            z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.01) + stack * 0.01
+        # Zellreihenfolge verwuerfeln, damit auch eine TEIL-Lage (weniger Artikel
+        # als Zellen) gleichmaessig ueber die ganze Flaeche verteilt wird statt
+        # zeilenweise in einer Ecke. Nutzt den geseedeten RNG -> reproduzierbar.
+        cells = [(cx, cy) for cy in range(cols_y) for cx in range(cols_x)]
+        random.shuffle(cells)
+
+        for i in range(cfg.item_quantity):
+            layer = i // per_layer
+            cx, cy = cells[i % per_layer]
+
+            # Zellmittelpunkt + kleiner Jitter, geklemmt auf die nutzbare Flaeche
+            jitter_x = random.uniform(-0.25 * step_x, 0.25 * step_x)
+            jitter_y = random.uniform(-0.25 * step_y, 0.25 * step_y)
+            x_pos = max(-ux, min(ux, -ux + (cx + 0.5) * step_x + jitter_x))
+            y_pos = max(-uy, min(uy, -uy + (cy + 0.5) * step_y + jitter_y))
+
+            z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.01)
 
             random_orientation = p.getQuaternionFromEuler(
                 [
-                    random.uniform(-0.15, 0.15),
-                    random.uniform(-0.15, 0.15),
-                    random.uniform(0, 2 * math.pi),
+                    random.uniform(-math.pi/10, math.pi/10),
+                    random.uniform(-math.pi/10, math.pi/10),
+                    random.uniform(-math.pi/10, math.pi/10),
                 ]
             )
 
@@ -638,6 +674,10 @@ class PackagingSimulation:
         used_box_volume = cfg.box_x * cfg.box_y * filling_height
         box_volume = cfg.box_x * cfg.box_y * cfg.box_z
 
+        # Packdichte = wie dicht die Schuettung IN SICH ist -> Artikelvolumen
+        # geteilt durch das bis zur Fuellhoehe tatsaechlich beanspruchte Volumen.
+        # WICHTIG: nicht durch box_volume teilen -- estimate_bulk_packing_density
+        # nutzt diesen Wert fuer den Box-Vorfilter (Referenzboxen sind 500 mm hoch).
         packing_density = (
             total_article_volume / used_box_volume
             if used_box_volume > 0
@@ -660,6 +700,7 @@ class PackagingSimulation:
             "used_box_volume_cm3": used_box_volume * 1_000_000,
             "packing_density_percent": packing_density * 100,
             "fits_in_box": fits_in_box,
+            "fill_rate_percent": box_utilization * 100,
         }
 
         self._print_results(results)
@@ -682,7 +723,7 @@ class PackagingSimulation:
             f"{results['used_box_volume_cm3']:.2f} cm^3"
         )
         print(
-            f"Erreichte Packdichte: "
+            f"Erreichte Fülldichte: "
             f"{results['packing_density_percent']:.2f} %"
         )
 

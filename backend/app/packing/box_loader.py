@@ -56,7 +56,7 @@ def load_boxes_from_csv(csv_path: str,quantity:int,bulk:bool,mesh_volume:float,s
         #Schüttgut-Pfad
         else:
             upper_density_limit = (
-                min(0.60, estimated_packing_density * 1.3)
+                estimated_packing_density * 1.3
                 if estimated_packing_density is not None
                 else 0.40
             )
