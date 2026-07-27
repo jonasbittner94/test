@@ -221,8 +221,7 @@ export default function PackingResultsPage() {
             </div>
 
             <div>
-              <strong>Füllgrad:</strong>{" "}
-              {result.fill_rate_percent.toFixed(2)} %
+              <strong>Füllgrad:</strong> {result.fill_rate_percent.toFixed(2)} %
             </div>
             <button
               type="button"

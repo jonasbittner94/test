@@ -28,6 +28,7 @@ export default function FormPage() {
     scalable: false,
     stability: "",
     scaled_length: "",
+    fillResidual: true,
   });
   const [errors, setErrors] = useState({
     file: "",
@@ -217,6 +218,7 @@ export default function FormPage() {
     localStorage.setItem("bulkGoods", String(formData.bulkGoods));
     localStorage.setItem("scaled_length", formData.scaled_length);
     localStorage.setItem("stability", formData.stability);
+    localStorage.setItem("fillResidual", String(formData.fillResidual));
 
     if (formData.bulkGoods) {
       await runSimulation();
@@ -327,8 +329,28 @@ export default function FormPage() {
               onChange={handleBulkGoodChange}
             />
           </Form.Group>
+          {!formData.bulkGoods && (
+            <Form.Group className="mb-3" controlId="packingPatternMode">
+              <Form.Label>Packmuster</Form.Label>
+              <Form.Select
+                value={formData.fillResidual ? "fillResidual" : "fixedPattern"}
+                style={{ width: "700px" }}
+                onChange={(e) => {
+                  const fillResidual = e.target.value === "fillResidual";
+                  setFormData((prev) => ({
+                    ...prev,
+                    fillResidual,
+                  }));
+                  localStorage.setItem("fillResidual", String(fillResidual));
+                }}
+              >
+                <option value="fillResidual">Resträume auffüllen</option>
+                <option value="fixedPattern">Festes Muster beibehalten</option>
+              </Form.Select>
+            </Form.Group>
+          )}
 
-          {/* Art der Zwischenlagen */}
+          {/* Art der Verpackung */}
           <Form.Group className="mb-3" controlId="layerGroup">
             <Form.Label>
               Nach welchem Verpackungstyp soll gefiltert werden?

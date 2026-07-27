@@ -171,6 +171,7 @@ function RenderingContent() {
     const scaled_length =
       scaledLength && scaledLength > 0 ? scaledLength : itemLength;
     const stability = localStorage.getItem("stability") ?? "beliebig";
+    const fillResidual = localStorage.getItem("fillResidual") !== "false";
 
     if (!itemQuantity || itemQuantity <= 0) {
       setPackingError("Keine gültige Artikelmenge gefunden.");
@@ -202,6 +203,7 @@ function RenderingContent() {
           pattern: pattern,
           mesh_volume: exactVolume,
           stability: stability,
+          fill_residual: fillResidual,
         }),
       });
 

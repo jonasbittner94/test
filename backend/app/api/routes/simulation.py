@@ -55,8 +55,6 @@ def run_simulation(config: SimulationConfig):
     collision_path = ensure_vhacd_collision_mesh(stl_path)
     stability = config.stability
 
-    print("Mesh Volume:",mesh_volume)
-
     reference_config = replace(
         config,
         mesh_volume=mesh_volume,
@@ -72,7 +70,6 @@ def run_simulation(config: SimulationConfig):
     for box in boxes:
         lhm_capacity = get_lhm_capacity(box)
         box.lhm_capacity = int(lhm_capacity)
-        print(box.lhm_capacity)
 
 
 

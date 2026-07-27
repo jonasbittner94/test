@@ -42,33 +42,81 @@ def _load_pattern_boxes(rows, total_article_volume: float, stability: str) -> li
     return boxes
 
 
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(value, upper))
+
 def _load_bulk_boxes(
     rows,
     total_article_volume: float,
     stability: str,
     estimated_packing_density: float | None,
 ) -> list[Box]:
-    """schuettgut-pfad: zusaetzlich ueber die geforderte packdichte filtern.
-    zufallsschuettung erreicht real nur ~35-55 % dichte -- boxen, die eine
-    zu hohe oder eine sehr niedrige dichte verlangen, koennen nie sinnvoll passen."""
-    if estimated_packing_density is not None:
-        upper_density_limit = estimated_packing_density * 1.3
-    else:
-        upper_density_limit = 0.40
-    lower_density_limit = 0.15
+    """
+    Schuettgut-Pfad: robuste Vorfilterung.
 
-    boxes: list[Box] = []
+    Ziel:
+    - Boxen bevorzugen, die volumetrisch mit konservativer Packdichte passen.
+    - Keine harte Untergrenze fuer required_density verwenden, damit grosse
+      Boxen als Fallback erhalten bleiben.
+    - Wenn keine Box rechnerisch passt, trotzdem die besten Kandidaten liefern.
+    """
+
+    # Fallback/Clamp verhindert, dass eine schlechte Simulation die Vorfilterung
+    # komplett leer macht.
+    if estimated_packing_density is None or estimated_packing_density <= 0:
+        packing_density = 0.35
+    else:
+        packing_density = _clamp(estimated_packing_density, 0.40, 0.80)
+
+    # Sicherheitsfaktor: rechne konservativer als die geschaetzte Packdichte.
+    # Beispiel: 0.35 / 1.25 = 0.28 effektiv nutzbare Dichte.
+    safety_factor = 1.25
+    usable_packing_density = packing_density / safety_factor
+
+    fitting_boxes: list[tuple[float, Box]] = []
+    fallback_boxes: list[tuple[float, Box]] = []
+
     for row in rows:
         if not _matches_stability(row, stability):
             continue
+
         box = _box_from_row(row)
-        required_density = total_article_volume / box.volume if box.volume > 0 else 0
-        if (
-            total_article_volume <= box.volume
-            and lower_density_limit < required_density < upper_density_limit
-        ):
-            boxes.append(box)
-    return boxes
+
+        if box.volume <= 0:
+            continue
+
+        required_density = total_article_volume / box.volume
+
+        # overflow_ratio <= 1 bedeutet:
+        # Box ist nach konservativer Packdichte gross genug.
+        overflow_ratio = required_density / usable_packing_density
+
+        if overflow_ratio <= 1.0:
+            fitting_boxes.append((overflow_ratio, box))
+        else:
+            fallback_boxes.append((overflow_ratio, box))
+
+    if fitting_boxes:
+        # Bevorzugt Boxen, die passen, aber nicht riesig ueberdimensioniert sind.
+        fitting_boxes.sort(
+            key=lambda entry: (
+                entry[0],          # knapp passend / geringe Ueberdimensionierung
+                entry[1].volume,   # kleinere Box bevorzugen
+            ),
+            reverse=False,
+        )
+        return [box for _, box in fitting_boxes]
+
+    # Fallback: Keine Box passt rechnerisch.
+    # Trotzdem beste Kandidaten zur Simulation weitergeben.
+    fallback_boxes.sort(
+        key=lambda entry: (
+            entry[0],          # geringste rechnerische Ueberfuellung
+            -entry[1].volume,  # bei Gleichstand groessere Box bevorzugen
+        )
+    )
+
+    return [box for _, box in fallback_boxes]
 
 
 def load_boxes_from_csv(

@@ -58,6 +58,8 @@ class PackingRequest(BaseModel):
     pattern: Optional[PatternRequest] = None
     mesh_volume:Optional[float] = None
     stability:str
+    fill_residual: bool = True
+
 
 router = APIRouter()
 
@@ -100,7 +102,8 @@ def get_top_20_packing_results(data: PackingRequest):
         data.quantity,
         bulk=False,
         mesh_volume=effective_volume,
-        stability=data.stability 
+        stability=data.stability,
+
     )
 
     optimizer = PackingOptimizer(
@@ -108,7 +111,9 @@ def get_top_20_packing_results(data: PackingRequest):
         quantity=data.quantity,
         boxes=boxes,
         pattern=pattern,
-        mesh_volume=effective_volume
+        mesh_volume=effective_volume,
+        fill_residual=data.fill_residual,
+
     )
 
     results = optimizer.find_top_boxes(limit=50)

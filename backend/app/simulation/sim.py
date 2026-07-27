@@ -27,7 +27,7 @@ class SimulationConfig:
 
     #Scale auf mm und verwendung der skallierten x komponente
     mesh_scale: tuple[float, float, float] = (0.001, 0.001, 0.001)
-    wall_thickness: float = 0.01
+    wall_thickness: float = 0.1
 
     # Performance / Genauigkeit
     use_box_collision: bool = True
@@ -35,22 +35,22 @@ class SimulationConfig:
     solver_iterations: int = 80
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
-    max_simulation_steps: int = 350
-    min_simulation_steps: int = 60
-    settle_check_interval: int = 20
+    max_simulation_steps: int = 1000
+    min_simulation_steps: int = 100
+    settle_check_interval: int = 30
 
     #Abbruchkriterium: Höhe ändert sich weniger als das
-    height_change_mm: float = 0.5
+    height_change_mm: float = 0.2
 
     #Sofortiger Abbruch, wenn die Füllhöhe nach dem Einfüllen zu hoch ist
-    early_validation_factor: float = 1.5
+    early_validation_factor: float = 2
 
     # Verdichtung durch Rütteln der Artikel
-    settle_duration: float = 1
-    settle_force_scale: float = 0.5
-    settle_frequency: float = 1
+    settle_duration: float = 1.2
+    settle_force_scale: float = 0.8
+    settle_frequency: float = 20
     collision_margin: float = 0.00002
-    fit_height_tolerance: float = 0.02
+    fit_height_tolerance: float = 0.015
     random_seed: Optional[int] = 42
     runs_per_box: int = 1
 
@@ -60,6 +60,16 @@ class SimulationConfig:
     # Parallelisierung
     parallel_simulations: bool = True
     max_workers: Optional[int] = None
+
+    # Stabile Box-Vorfilterung
+    packing_density_fallback: float = 0.30
+    packing_density_min: float = 0.12
+    packing_density_max: float = 0.8
+    prefilter_safety_factor: float = 1.25
+    prefilter_fallback_candidates: int = 5
+
+    # Wenn keine Box laut Simulation passt, trotzdem beste Alternative liefern
+    return_best_invalid_if_no_valid: bool = True
 
 
     @property
@@ -151,42 +161,101 @@ def _get_best_valid_results(simulation_results: list[dict], limit: int | None = 
 
     return valid_results if limit is None else valid_results[:limit]
 
+def _get_single_article_volume_m3(config: SimulationConfig) -> float:
+    if config.mesh_volume > 0:
+        scale_x = config.mesh_scale[0] / 0.001
+        scale_y = config.mesh_scale[1] / 0.001
+        scale_z = config.mesh_scale[2] / 0.001
+        volume_scale = scale_x * scale_y * scale_z
+        return config.mesh_volume * volume_scale * 1e-9
+
+    return (
+        config.item.length / 1000
+        * config.item.width / 1000
+        * config.item.height / 1000
+    )
+
+
+def _build_dynamic_reference_boxes(config: SimulationConfig) -> list[Box]:
+    single_article_volume = _get_single_article_volume_m3(config)
+    total_article_volume = single_article_volume * config.item_quantity
+
+    # konservative Annahme fuer lockere Schuettung
+    assumed_density = 0.30
+    estimated_bulk_volume = total_article_volume / assumed_density
+
+    # drei unterschiedliche Grundflaechen-Layouts
+    layouts = [
+        ("ref_small", 0.12, 0.08),   # 120 x 80 mm
+        ("ref_medium", 0.18, 0.12),  # 180 x 120 mm
+        ("ref_large", 0.28, 0.20),   # 280 x 200 mm
+    ]
+
+    boxes: list[Box] = []
+
+    for name, length_m, width_m in layouts:
+        base_area = length_m * width_m
+        height_m = estimated_bulk_volume / base_area
+
+        # Sicherheitsaufschlag und Begrenzung
+        height_m *= 1.15
+        height_m = max(0.12, min(height_m, 1.2))
+
+        boxes.append(
+            Box(
+                name=name,
+                length=math.ceil(length_m * 1000),
+                width=math.ceil(width_m * 1000),
+                height=math.ceil(height_m * 1000),
+                lhm_capacity=1,
+            )
+        )
+
+    return boxes
+
 
 def estimate_bulk_packing_density(config: SimulationConfig) -> float:
     """
-    Simuliert 3 Referenzboxen und liefert die geschaetzte Packdichte als Median
-    im Bereich [0, 1].
+    Simuliert dynamisch abgeleitete Referenzboxen und liefert die geschaetzte
+    Packdichte als Median im Bereich [0, 1].
     """
-    reference_boxes = [
-        Box(name="ref_small", length=100, width=50, height=500, lhm_capacity=1),
-        Box(name="ref_medium", length=200, width=100, height=500, lhm_capacity=1),
-        Box(name="ref_large", length=400, width=300, height=500, lhm_capacity=1),
-    ]
-
+    reference_boxes = _build_dynamic_reference_boxes(config)
     densities: list[float] = []
 
     for index, box in enumerate(reference_boxes):
-        single_config = replace(
-            config,
-            boxes=[box],
-            runs_per_box=1,
-            use_gui=False,
-            parallel_simulations=False,
-            random_seed=None if config.random_seed is None else config.random_seed + 10_000 + index,
-        )
+        current_box = box
 
-        result = run_single_box_simulation((single_config, box, index))
-        densities.append(result["packing_density_percent"] / 100.0)
+        # adaptive Nachvergroesserung, falls Referenzbox zu klein ist
+        for attempt in range(4):
+            single_config = replace(
+                config,
+                boxes=[current_box],
+                runs_per_box=1,
+                use_gui=False,
+                parallel_simulations=False,
+                random_seed=None if config.random_seed is None else config.random_seed + 10_000 + index,
+            )
+
+            result = run_single_box_simulation((single_config, current_box, index))
+
+            if result["fits_in_box"]:
+                densities.append(result["packing_density_percent"] / 100.0)
+                break
+
+            scale = 1.25
+            current_box = Box(
+                name=f"{box.name}_scaled_{attempt + 1}",
+                length=math.ceil(current_box.length * scale),
+                width=math.ceil(current_box.width * scale),
+                height=math.ceil(current_box.height * scale),
+                lhm_capacity=1,
+            )
 
     if not densities:
         return 0.35
 
-    return median(densities)
-
-
-
-
-
+    return max(densities)
+        
 class PackagingSimulation:
     def __init__(self, config: SimulationConfig):
         self.config = config
@@ -354,7 +423,7 @@ class PackagingSimulation:
         # Boden
         floor_collision_shape = p.createCollisionShape(
             p.GEOM_BOX,
-            halfExtents=[cfg.box_x / 2, cfg.box_y / 2, cfg.wall_thickness / 2],
+            halfExtents=[cfg.box_x, cfg.box_y, cfg.wall_thickness / 2],
         )
         floor_visual_shape = p.createVisualShape(
             p.GEOM_BOX,
@@ -486,7 +555,10 @@ class PackagingSimulation:
     def _create_article_shapes(self) -> None:
         cfg = self.config
 
-        mesh_file = cfg.collision_file or cfg.stl_file
+        mesh_file = cfg.collision_file
+        print(f"Kollisionsmesh: {mesh_file}")
+        print(f"Visualmesh:     {cfg.stl_file}")
+        print(f"mesh_scale:     {cfg.mesh_scale}")
 
         self.collision_shape_id = p.createCollisionShape(
             p.GEOM_MESH,
@@ -582,7 +654,7 @@ class PackagingSimulation:
         if filling_height > cfg.box_z * cfg.early_validation_factor:
             return
 
-        p.setGravity(0, 0, -100)
+        p.setGravity(0, 0, -120)
 
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,
