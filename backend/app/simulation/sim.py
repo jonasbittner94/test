@@ -46,9 +46,10 @@ class SimulationConfig:
     early_validation_factor: float = 2
 
     # Verdichtung durch Rütteln der Artikel
-    settle_duration: float = 1.2
-    settle_force_scale: float = 0.8
-    settle_frequency: float = 30
+    settle_duration: float = 2.0
+    settle_force_scale: float = 0.35
+    settle_frequency: float = 4.0
+    settle_pause_ratio: float = 0.35
     collision_margin: float = 0.00002
     fit_height_tolerance: float = 0.015
     random_seed: Optional[int] = 42
@@ -728,26 +729,25 @@ class PackagingSimulation:
         force_scale: float,
         frequency: float,
     ) -> None:
-        steps = max(1, int(duration * 240))
+        steps = max(1, int(duration / self.config.fixed_time_step))
 
         for step in range(steps):
-            force_direction = math.sin(step * frequency)
+            t = step * self.config.fixed_time_step
+
+            fx = force_scale * math.sin(2 * math.pi * frequency * t)
+            fy = force_scale * math.sin(2 * math.pi * frequency * t + math.pi / 2)
 
             for article_id in self.article_ids:
                 p.applyExternalForce(
                     objectUniqueId=article_id,
                     linkIndex=-1,
-                    forceObj=[
-                        force_scale * force_direction,
-                        force_scale * random.uniform(-1, 1),
-                        0,
-                    ],
+                    forceObj=[fx, fy, 0.0],
                     posObj=[0, 0, 0],
                     flags=p.WORLD_FRAME,
+                    physicsClientId=self.physics_client,
                 )
 
             self._step()
-
     def _evaluate(self) -> dict:
         cfg = self.config
 
