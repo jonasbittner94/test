@@ -27,12 +27,12 @@ class SimulationConfig:
 
     #Scale auf mm und verwendung der skallierten x komponente
     mesh_scale: tuple[float, float, float] = (0.001, 0.001, 0.001)
-    wall_thickness: float = 0.1
+    wall_thickness: float = 0.01
 
     # Performance / Genauigkeit
     use_box_collision: bool = True
-    fixed_time_step: float = 1 / 480
-    solver_iterations: int = 80
+    fixed_time_step: float = 1 / 960
+    solver_iterations: int = 160
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
     max_simulation_steps: int = 1000
@@ -48,7 +48,7 @@ class SimulationConfig:
     # Verdichtung durch Rütteln der Artikel
     settle_duration: float = 1.2
     settle_force_scale: float = 0.8
-    settle_frequency: float = 20
+    settle_frequency: float = 30
     collision_margin: float = 0.00002
     fit_height_tolerance: float = 0.015
     random_seed: Optional[int] = 42
@@ -387,7 +387,7 @@ class PackagingSimulation:
             numSolverIterations=self.config.solver_iterations,#Wie oft Kräfte berechnen
             deterministicOverlappingPairs=1,#Berechnungsreihenfolge der Kollisionen immer identisch
             enableConeFriction=1,#komplexere Reibung
-            contactBreakingThreshold=0.001,#kein Kontakt, wenn die Distanz > 1mm
+            contactBreakingThreshold=0.0002,#kein Kontakt, wenn die Distanz > 1mm
             physicsClientId=self.physics_client,
         )
 
@@ -422,9 +422,9 @@ class PackagingSimulation:
 
         # Boden
         floor_collision_shape = p.createCollisionShape(
-            p.GEOM_BOX,
-            halfExtents=[cfg.box_x, cfg.box_y, cfg.wall_thickness / 2],
-        )
+        p.GEOM_BOX,
+        halfExtents=[cfg.box_x / 2, cfg.box_y / 2, cfg.wall_thickness / 2],
+    )
         floor_visual_shape = p.createVisualShape(
             p.GEOM_BOX,
             halfExtents=[cfg.box_x / 2, cfg.box_y / 2, cfg.wall_thickness / 2],
@@ -603,7 +603,7 @@ class PackagingSimulation:
             x_pos = max(-ux, min(ux, -ux + (cx + 0.5) * step_x + jitter_x))
             y_pos = max(-uy, min(uy, -uy + (cy + 0.5) * step_y + jitter_y))
 
-            z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.01)
+            z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.005)
 
             random_orientation = p.getQuaternionFromEuler(
                 [
@@ -621,15 +621,22 @@ class PackagingSimulation:
                 baseOrientation=random_orientation,
             )
 
+            p.resetBaseVelocity(
+                body_id,
+                linearVelocity=[0, 0, 0],
+                angularVelocity=[0, 0, 0],
+                physicsClientId=self.physics_client,
+            )
+
             #Materialeigenschaften: Reibung, Luftwiederstand,...
             p.changeDynamics(
                 body_id,
                 -1,
-                lateralFriction=0.005,
-                spinningFriction=0.0005,
-                rollingFriction=0.0005,
-                linearDamping=0.04,
-                angularDamping=0.04,
+                lateralFriction=0.2,
+                spinningFriction=0.01,
+                rollingFriction=0.01,
+                linearDamping=0.08,
+                angularDamping=0.08,
                 restitution=0.0,
                 collisionMargin=cfg.collision_margin,
             )
@@ -637,8 +644,9 @@ class PackagingSimulation:
             self.article_ids.append(body_id)
 
     def _step(self) -> None:
-        p.stepSimulation()
-        # Im GUI-Modus auf Echtzeit bremsen, sonst ist nichts zu sehen
+        for _ in range(2):
+            p.stepSimulation(physicsClientId=self.physics_client)
+
         if self.config.use_gui:
             time.sleep(self.config.fixed_time_step)
 
@@ -650,7 +658,7 @@ class PackagingSimulation:
         self._step_until_settled()
 
         # Abbruch bei zu hoher Füllhöhe, nach dem Fall
-        filling_height = self._current_max_z() - cfg.wall_thickness
+        filling_height = self._current_estimated_top_z() - cfg.wall_thickness
         if filling_height > cfg.box_z * cfg.early_validation_factor:
             return
 
@@ -668,14 +676,31 @@ class PackagingSimulation:
         p.setGravity(0, 0, -9.81)
 
     #Füllhöhe bestimmen 
-    def _current_max_z(self) -> float:
-        """Oberkante der Schuettung ueber die AABBs aller Artikel."""
+    def _current_estimated_top_z(self) -> float:
+        """Einfache Hoehennaeherung ueber Schwerpunkt + projizierte halbe Artikelhoehe."""
         max_z = 0.0
-        for article_id in self.article_ids:
-            _, aabb_max = p.getAABB(article_id)
-            max_z = max(max_z, aabb_max[2])
-        return max_z
 
+        for article_id in self.article_ids:
+            position, orientation = p.getBasePositionAndOrientation(
+                article_id,
+                physicsClientId=self.physics_client,
+            )
+            rotation_matrix = p.getMatrixFromQuaternion(orientation)
+
+            r20 = rotation_matrix[6]
+            r21 = rotation_matrix[7]
+            r22 = rotation_matrix[8]
+
+            projected_half_height = 0.5 * (
+                abs(r20) * self.article_x
+                + abs(r21) * self.article_y
+                + abs(r22) * self.article_z
+            )
+
+            top_z = position[2] + projected_half_height
+            max_z = max(max_z, top_z)
+
+        return max_z
     #Simulation läuft, bis die Füllhöhe sich nicht mehr signifikant ändert
     def _step_until_settled(self) -> None:
         cfg = self.config
@@ -687,7 +712,7 @@ class PackagingSimulation:
             if step % cfg.settle_check_interval != 0:
                 continue
 
-            height = self._current_max_z()
+            height = self._current_estimated_top_z()
             height_converged = (
                 last_height is not None
                 and abs(height - last_height) < cfg.height_change_mm / 1000
@@ -728,7 +753,7 @@ class PackagingSimulation:
 
         # Tatsaechliche Oberkante ueber die AABB: gilt auch fuer gekippte/
         # rotierte Artikel (Position + halbe Hoehe stimmt nur aufrecht).
-        filling_height = self._current_max_z() - cfg.wall_thickness
+        filling_height = self._current_estimated_top_z() - cfg.wall_thickness
 
         # Echtes Mesh-Volumen (mm^3 -> m^3) statt Bounding-Box-Quader;
         # Fallback auf den Quader, falls kein Mesh-Volumen berechnet wurde.
