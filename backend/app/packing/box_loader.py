@@ -70,7 +70,7 @@ def _load_bulk_boxes(
 
     # Sicherheitsfaktor: rechne konservativer als die geschaetzte Packdichte.
     # Beispiel: 0.35 / 1.25 = 0.28 effektiv nutzbare Dichte.
-    safety_factor = 1.25
+    safety_factor = 1.3
     usable_packing_density = packing_density / safety_factor
 
     fitting_boxes: list[tuple[float, Box]] = []
@@ -137,7 +137,7 @@ def load_boxes_from_csv(
 
     if bulk:
         boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
-        limit = 20
+        limit = 25
     else:
         boxes = _load_pattern_boxes(rows, total_article_volume, stability)
         limit = 200

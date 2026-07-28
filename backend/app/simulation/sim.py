@@ -30,14 +30,14 @@ class SimulationConfig:
     wall_thickness: float = 0.01
 
     # Performance / Genauigkeit
-    use_box_collision: bool = True
-    fixed_time_step: float = 1 / 960
-    solver_iterations: int = 160
+    use_box_collision: bool = False
+    fixed_time_step: float = 1 / 480
+    solver_iterations: int = 60
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
-    max_simulation_steps: int = 1000
+    max_simulation_steps: int = 500
     min_simulation_steps: int = 100
-    settle_check_interval: int = 30
+    settle_check_interval: int = 60
 
     #Abbruchkriterium: Höhe ändert sich weniger als das
     height_change_mm: float = 0.2
@@ -45,11 +45,18 @@ class SimulationConfig:
     #Sofortiger Abbruch, wenn die Füllhöhe nach dem Einfüllen zu hoch ist
     early_validation_factor: float = 2
 
+    enable_top_article_flattening: bool = True
+    top_outlier_threshold_mm: float = 5.0
+    max_outlier_articles: int = 5
+    flatten_duration: float = 0.6
+    flatten_force_scale: float = 0.5
+    flatten_torque_scale: float = 0.2
+
     # Verdichtung durch Rütteln der Artikel
-    settle_duration: float = 2.0
-    settle_force_scale: float = 0.35
-    settle_frequency: float = 4.0
-    settle_pause_ratio: float = 0.35
+    settle_duration: float = 2
+    settle_force_scale: float = 0.5
+    settle_frequency: float = 5.0
+    settle_pause_ratio: float = 0.2
     collision_margin: float = 0.00002
     fit_height_tolerance: float = 0.015
     random_seed: Optional[int] = 42
@@ -71,6 +78,8 @@ class SimulationConfig:
 
     # Wenn keine Box laut Simulation passt, trotzdem beste Alternative liefern
     return_best_invalid_if_no_valid: bool = True
+    diagnostic_tolerance_mm: float = 1.0
+
 
 
     @property
@@ -82,6 +91,42 @@ class SimulationConfig:
     @property
     def box_z(self) -> float:
         return self.boxes[0].height / 1000
+    
+
+def calibrate_mesh_scale(config: SimulationConfig) -> SimulationConfig:
+    if config.use_box_collision:
+        return config
+
+    simulation = PackagingSimulation(config)
+    simulation._connect()
+
+    try:
+        simulation._create_article_shapes()
+        measured_dims = simulation._measure_current_article_aabb()
+    finally:
+        simulation._disconnect()
+
+    actual_x, actual_y, actual_z = measured_dims
+    if min(actual_x, actual_y, actual_z) <= 0:
+        return config
+
+    factor_x = simulation.article_x / actual_x
+    factor_y = simulation.article_y / actual_y
+    factor_z = simulation.article_z / actual_z
+    uniform_factor = (factor_x + factor_y + factor_z) / 3
+
+    new_scale = tuple(value * uniform_factor for value in config.mesh_scale)
+
+    print(
+        "[Auto-Scale] "
+        f"factor_x={factor_x:.4f}, "
+        f"factor_y={factor_y:.4f}, "
+        f"factor_z={factor_z:.4f}, "
+        f"uniform_factor={uniform_factor:.4f}"
+    )
+    print(f"[Auto-Scale] mesh_scale alt={config.mesh_scale}, neu={new_scale}")
+
+    return replace(config, mesh_scale=new_scale)
 
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
         config, box, box_index = args
@@ -215,11 +260,16 @@ def _build_dynamic_reference_boxes(config: SimulationConfig) -> list[Box]:
     return boxes
 
 
+
+
 def estimate_bulk_packing_density(config: SimulationConfig) -> float:
     """
     Simuliert dynamisch abgeleitete Referenzboxen und liefert die geschaetzte
     Packdichte als Median im Bereich [0, 1].
     """
+
+    calibrated_config = calibrate_mesh_scale(config)
+
     reference_boxes = _build_dynamic_reference_boxes(config)
     densities: list[float] = []
 
@@ -229,7 +279,7 @@ def estimate_bulk_packing_density(config: SimulationConfig) -> float:
         # adaptive Nachvergroesserung, falls Referenzbox zu klein ist
         for attempt in range(4):
             single_config = replace(
-                config,
+                calibrated_config,
                 boxes=[current_box],
                 runs_per_box=1,
                 use_gui=False,
@@ -267,15 +317,13 @@ class PackagingSimulation:
         self.article_ids: list[int] = []
         self.collision_shape_id: int | None = None
         self.visual_shape_id: int | None = None
+        self.box_body_ids: list[int] = []
 
 
         # Artikelmaße von mm auf m
         self.article_x = self.item.length / 1000
         self.article_y = self.item.width / 1000
         self.article_z = self.item.height / 1000
-
-    
-
 
     def run(self) -> dict:
         boxes = self.config.boxes
@@ -325,17 +373,30 @@ class PackagingSimulation:
         return {
             "results": _get_best_valid_results(simulation_results),
         }
+    
+    def _run_geometry_diagnostics(self) -> None:
+        self._diagnose_box_inner_dimensions()
+        self._diagnose_article_bounding_box()
 
     def _run_single(self) -> dict:
         self.article_ids = []
         self.collision_shape_id = None
         self.visual_shape_id = None
+        self.box_body_ids = []
 
 
         try:
             self._connect()
             self._create_box()
             self._create_article_shapes()
+
+            
+            self._auto_adjust_mesh_scale()
+            self._create_article_shapes()
+
+            self._run_geometry_diagnostics()
+
+
             self._spawn_articles()
             self._simulate()
             results = self._evaluate()
@@ -356,6 +417,57 @@ class PackagingSimulation:
                 time.sleep(self.config.fixed_time_step)
         except p.error:
             pass  # Fenster wurde geschlossen
+
+    def _auto_adjust_mesh_scale(self) -> None:
+        if self.config.use_box_collision:
+            return
+
+        test_body_id = p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=self.collision_shape_id,
+            baseVisualShapeIndex=-1,
+            basePosition=[0, 0, 2.0],
+            baseOrientation=[0, 0, 0, 1],
+            physicsClientId=self.physics_client,
+        )
+
+        try:
+            aabb_min, aabb_max = p.getAABB(
+                test_body_id,
+                physicsClientId=self.physics_client,
+            )
+        finally:
+            p.removeBody(test_body_id, physicsClientId=self.physics_client)
+
+        actual_x = aabb_max[0] - aabb_min[0]
+        actual_y = aabb_max[1] - aabb_min[1]
+        actual_z = aabb_max[2] - aabb_min[2]
+
+        if min(actual_x, actual_y, actual_z) <= 0:
+            return
+
+        factor_x = self.article_x / actual_x
+        factor_y = self.article_y / actual_y
+        factor_z = self.article_z / actual_z
+        uniform_factor = (factor_x + factor_y + factor_z) / 3
+
+        old_scale = self.config.mesh_scale
+        new_scale = tuple(value * uniform_factor for value in old_scale)
+
+        print(
+            "[Auto-Scale] "
+            f"factor_x={factor_x:.4f}, "
+            f"factor_y={factor_y:.4f}, "
+            f"factor_z={factor_z:.4f}, "
+            f"uniform_factor={uniform_factor:.4f}"
+        )
+        print(
+            "[Auto-Scale] "
+            f"mesh_scale alt={old_scale}, neu={new_scale}"
+        )
+
+        self.config = replace(self.config, mesh_scale=new_scale)
+
 
 
     def _connect(self) -> None:
@@ -406,7 +518,101 @@ class PackagingSimulation:
                 pass
             self.physics_client = None
 
+    def _get_article_top_z(self, article_id: int) -> float:
+        position, orientation = p.getBasePositionAndOrientation(
+            article_id,
+            physicsClientId=self.physics_client,
+        )
+        rotation_matrix = p.getMatrixFromQuaternion(orientation)
 
+        r20 = rotation_matrix[6]
+        r21 = rotation_matrix[7]
+        r22 = rotation_matrix[8]
+
+        projected_half_height = 0.5 * (
+            abs(r20) * self.article_x
+            + abs(r21) * self.article_y
+            + abs(r22) * self.article_z
+        )
+
+        _, aabb_max = p.getAABB(
+            article_id,
+            physicsClientId=self.physics_client,
+        )
+        aabb_top = aabb_max[2]
+        projected_top = position[2] + projected_half_height
+
+        return 0.4 * projected_top + 0.6 * aabb_top
+
+    def _find_top_outlier_articles(self) -> list[int]:
+        article_tops: list[tuple[int, float]] = []
+
+        for article_id in self.article_ids:
+            top_z = self._get_article_top_z(article_id)
+            article_tops.append((article_id, top_z))
+
+        if not article_tops:
+            return []
+
+        top_values = [top_z for _, top_z in article_tops]
+        reference_height = median(top_values)
+        threshold = reference_height + self.config.top_outlier_threshold_mm / 1000
+
+        outliers = [
+            (article_id, top_z)
+            for article_id, top_z in article_tops
+            if top_z > threshold
+        ]
+        outliers.sort(key=lambda item: item[1], reverse=True)
+
+        return [
+            article_id
+            for article_id, _ in outliers[: self.config.max_outlier_articles]
+        ]
+
+    def _flatten_top_outliers(self) -> None:
+        outlier_ids = self._find_top_outlier_articles()
+        if not outlier_ids:
+            return
+
+        steps = max(1, int(self.config.flatten_duration / self.config.fixed_time_step))
+
+        for step in range(steps):
+            for article_id in outlier_ids:
+                position, _ = p.getBasePositionAndOrientation(
+                    article_id,
+                    physicsClientId=self.physics_client,
+                )
+
+                dir_x = -1.0 if position[0] > 0 else 1.0
+                dir_y = -1.0 if position[1] > 0 else 1.0
+
+                p.applyExternalForce(
+                    objectUniqueId=article_id,
+                    linkIndex=-1,
+                    forceObj=[
+                        self.config.flatten_force_scale * dir_x,
+                        self.config.flatten_force_scale * dir_y,
+                        -0.05 * self.config.flatten_force_scale,
+                    ],
+                    posObj=[0, 0, 0],
+                    flags=p.WORLD_FRAME,
+                    physicsClientId=self.physics_client,
+                )
+
+                p.applyExternalTorque(
+                    objectUniqueId=article_id,
+                    linkIndex=-1,
+                    torqueObj=[
+                        random.uniform(-1, 1) * self.config.flatten_torque_scale,
+                        random.uniform(-1, 1) * self.config.flatten_torque_scale,
+                        0.0,
+                    ],
+                    flags=p.WORLD_FRAME,
+                    physicsClientId=self.physics_client,
+                )
+
+            self._step()
 
     def _create_box(self) -> None:
         cfg = self.config
@@ -561,11 +767,19 @@ class PackagingSimulation:
         print(f"Visualmesh:     {cfg.stl_file}")
         print(f"mesh_scale:     {cfg.mesh_scale}")
 
-        self.collision_shape_id = p.createCollisionShape(
-            p.GEOM_MESH,
-            fileName=mesh_file,
-            meshScale=cfg.mesh_scale,
-        )
+        if cfg.use_box_collision:
+            self.collision_shape_id = p.createCollisionShape(
+                p.GEOM_BOX,
+                halfExtents=[self.article_x / 2, self.article_y / 2, self.article_z / 2],
+                physicsClientId=self.physics_client,
+            )
+        else:
+            self.collision_shape_id = p.createCollisionShape(
+                p.GEOM_MESH,
+                fileName=mesh_file,
+                meshScale=cfg.mesh_scale,
+                physicsClientId=self.physics_client,
+            )
 
         self.visual_shape_id = p.createVisualShape(
             p.GEOM_MESH,
@@ -645,8 +859,8 @@ class PackagingSimulation:
             self.article_ids.append(body_id)
 
     def _step(self) -> None:
-        for _ in range(2):
-            p.stepSimulation(physicsClientId=self.physics_client)
+        p.stepSimulation(physicsClientId=self.physics_client)
+
 
         if self.config.use_gui:
             time.sleep(self.config.fixed_time_step)
@@ -663,7 +877,7 @@ class PackagingSimulation:
         if filling_height > cfg.box_z * cfg.early_validation_factor:
             return
 
-        p.setGravity(0, 0, -120)
+        p.setGravity(0, 0, -200)
 
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,
@@ -674,11 +888,15 @@ class PackagingSimulation:
         # Phase 2: nach den Verdichtungs-Impulsen erneut ausruhen lassen
         self._step_until_settled()
 
+        if cfg.enable_top_article_flattening:
+            self._flatten_top_outliers()
+            self._step_until_settled()
+
         p.setGravity(0, 0, -9.81)
 
     #Füllhöhe bestimmen 
     def _current_estimated_top_z(self) -> float:
-        """Einfache Hoehennaeherung ueber Schwerpunkt + projizierte halbe Artikelhoehe."""
+        """Konservative Hoehennaeherung aus Projektion und AABB."""
         max_z = 0.0
 
         for article_id in self.article_ids:
@@ -697,8 +915,15 @@ class PackagingSimulation:
                 + abs(r21) * self.article_y
                 + abs(r22) * self.article_z
             )
+            estimated_top = position[2] + projected_half_height
 
-            top_z = position[2] + projected_half_height
+            _, aabb_max = p.getAABB(
+                article_id,
+                physicsClientId=self.physics_client,
+            )
+            aabb_top = aabb_max[2]
+
+            top_z = 0.3 * estimated_top + 0.7 * aabb_top
             max_z = max(max_z, top_z)
 
         return max_z
@@ -806,6 +1031,7 @@ class PackagingSimulation:
 
     def _print_results(self, results: dict) -> None:
         print("\nErgebnisse")
+        print(f"Box: {self.config.boxes[0].name}")
         print(f"Füllhöhe in der Kiste: {results['filling_height_mm']:.2f} mm")
         print(
             f"Relative Füllhöhe der Kiste: "
@@ -823,6 +1049,132 @@ class PackagingSimulation:
             f"Erreichte Fülldichte: "
             f"{results['packing_density_percent']:.2f} %"
         )
+
+    def _diagnose_box_inner_dimensions(self) -> None:
+        cfg = self.config
+
+        expected_x = cfg.box_x
+        expected_y = cfg.box_y
+        expected_z = cfg.box_z
+
+        actual_x = cfg.box_x
+        actual_y = cfg.box_y
+        actual_z = cfg.box_z
+
+        self._print_dimension_check(
+            label="Box-Innenmaß X",
+            expected_m=expected_x,
+            actual_m=actual_x,
+        )
+        self._print_dimension_check(
+            label="Box-Innenmaß Y",
+            expected_m=expected_y,
+            actual_m=actual_y,
+        )
+        self._print_dimension_check(
+            label="Box-Innenmaß Z",
+            expected_m=expected_z,
+            actual_m=actual_z,
+        )
+
+    def _diagnose_article_bounding_box(self) -> None:
+        test_body_id = p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=self.collision_shape_id,
+            baseVisualShapeIndex=-1,
+            basePosition=[0, 0, 2.0],
+            baseOrientation=[0, 0, 0, 1],
+            physicsClientId=self.physics_client,
+        )
+
+        try:
+            aabb_min, aabb_max = p.getAABB(
+                test_body_id,
+                physicsClientId=self.physics_client,
+            )
+
+            actual_x = aabb_max[0] - aabb_min[0]
+            actual_y = aabb_max[1] - aabb_min[1]
+            actual_z = aabb_max[2] - aabb_min[2]
+
+            self._print_dimension_check(
+                label="Artikel-BoundingBox X",
+                expected_m=self.article_x,
+                actual_m=actual_x,
+            )
+            self._print_dimension_check(
+                label="Artikel-BoundingBox Y",
+                expected_m=self.article_y,
+                actual_m=actual_y,
+            )
+            self._print_dimension_check(
+                label="Artikel-BoundingBox Z",
+                expected_m=self.article_z,
+                actual_m=actual_z,
+            )
+        finally:
+            p.removeBody(test_body_id, physicsClientId=self.physics_client)
+
+    def _print_dimension_check(
+        self,
+        label: str,
+        expected_m: float,
+        actual_m: float,
+    ) -> None:
+        tolerance_m = self.config.diagnostic_tolerance_mm / 1000
+        diff_m = actual_m - expected_m
+        status = "OK" if abs(diff_m) <= tolerance_m else "WARNUNG"
+
+        print(
+            f"[Geometrie-Check] {label}: "
+            f"expected={expected_m * 1000:.2f} mm, "
+            f"actual={actual_m * 1000:.2f} mm, "
+            f"diff={diff_m * 1000:.2f} mm -> {status}"
+        )
+
+    def _measure_current_article_aabb(self) -> tuple[float, float, float]:
+        test_body_id = p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=self.collision_shape_id,
+            baseVisualShapeIndex=-1,
+            basePosition=[0, 0, 2.0],
+            baseOrientation=[0, 0, 0, 1],
+            physicsClientId=self.physics_client,
+        )
+
+        try:
+            aabb_min, aabb_max = p.getAABB(
+                test_body_id,
+                physicsClientId=self.physics_client,
+            )
+        finally:
+            p.removeBody(test_body_id, physicsClientId=self.physics_client)
+
+        return (
+            aabb_max[0] - aabb_min[0],
+            aabb_max[1] - aabb_min[1],
+            aabb_max[2] - aabb_min[2],
+        )
+
+    def _diagnose_article_bounding_box(self) -> None:
+        actual_x, actual_y, actual_z = self._measure_current_article_aabb()
+
+        self._print_dimension_check(
+            label="Artikel-BoundingBox X",
+            expected_m=self.article_x,
+            actual_m=actual_x,
+        )
+        self._print_dimension_check(
+            label="Artikel-BoundingBox Y",
+            expected_m=self.article_y,
+            actual_m=actual_y,
+        )
+        self._print_dimension_check(
+            label="Artikel-BoundingBox Z",
+            expected_m=self.article_z,
+            actual_m=actual_z,
+        )
+
 
 
 

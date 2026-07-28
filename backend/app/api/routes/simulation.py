@@ -67,6 +67,8 @@ def run_simulation(config: SimulationConfig):
 
     boxes = load_boxes_from_csv(str(BOXES_CSV), config.item_quantity, bulk=True, mesh_volume=mesh_volume,stability=stability,estimated_packing_density=estimated_packing_density,)
 
+    print("mögliche Verpackungen", boxes)
+
     for box in boxes:
         lhm_capacity = get_lhm_capacity(box)
         box.lhm_capacity = int(lhm_capacity)
