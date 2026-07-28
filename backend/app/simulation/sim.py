@@ -43,7 +43,7 @@ class SimulationConfig:
     height_change_mm: float = 0.2
 
     #Sofortiger Abbruch, wenn die Füllhöhe nach dem Einfüllen zu hoch ist
-    early_validation_factor: float = 2
+    early_validation_factor: float = 1.6
 
     enable_top_article_flattening: bool = True
     top_outlier_threshold_mm: float = 5.0
@@ -376,7 +376,6 @@ class PackagingSimulation:
     
     def _run_geometry_diagnostics(self) -> None:
         self._diagnose_box_inner_dimensions()
-        self._diagnose_article_bounding_box()
 
     def _run_single(self) -> dict:
         self.article_ids = []
@@ -1077,44 +1076,6 @@ class PackagingSimulation:
             actual_m=actual_z,
         )
 
-    def _diagnose_article_bounding_box(self) -> None:
-        test_body_id = p.createMultiBody(
-            baseMass=0,
-            baseCollisionShapeIndex=self.collision_shape_id,
-            baseVisualShapeIndex=-1,
-            basePosition=[0, 0, 2.0],
-            baseOrientation=[0, 0, 0, 1],
-            physicsClientId=self.physics_client,
-        )
-
-        try:
-            aabb_min, aabb_max = p.getAABB(
-                test_body_id,
-                physicsClientId=self.physics_client,
-            )
-
-            actual_x = aabb_max[0] - aabb_min[0]
-            actual_y = aabb_max[1] - aabb_min[1]
-            actual_z = aabb_max[2] - aabb_min[2]
-
-            self._print_dimension_check(
-                label="Artikel-BoundingBox X",
-                expected_m=self.article_x,
-                actual_m=actual_x,
-            )
-            self._print_dimension_check(
-                label="Artikel-BoundingBox Y",
-                expected_m=self.article_y,
-                actual_m=actual_y,
-            )
-            self._print_dimension_check(
-                label="Artikel-BoundingBox Z",
-                expected_m=self.article_z,
-                actual_m=actual_z,
-            )
-        finally:
-            p.removeBody(test_body_id, physicsClientId=self.physics_client)
-
     def _print_dimension_check(
         self,
         label: str,
@@ -1156,24 +1117,6 @@ class PackagingSimulation:
             aabb_max[2] - aabb_min[2],
         )
 
-    def _diagnose_article_bounding_box(self) -> None:
-        actual_x, actual_y, actual_z = self._measure_current_article_aabb()
-
-        self._print_dimension_check(
-            label="Artikel-BoundingBox X",
-            expected_m=self.article_x,
-            actual_m=actual_x,
-        )
-        self._print_dimension_check(
-            label="Artikel-BoundingBox Y",
-            expected_m=self.article_y,
-            actual_m=actual_y,
-        )
-        self._print_dimension_check(
-            label="Artikel-BoundingBox Z",
-            expected_m=self.article_z,
-            actual_m=actual_z,
-        )
 
 
 
