@@ -24,7 +24,7 @@ VHACD_PARAMS = {
     "resolution": 300_000,
     "concavity": 0.0015,
     "gamma": 0.00075,
-    "maxNumVerticesPerCH": 32,
+    "maxNumVerticesPerCH": 10,
     "minVolumePerCH": 0.0002,
 }
 

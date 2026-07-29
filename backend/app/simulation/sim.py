@@ -31,13 +31,13 @@ class SimulationConfig:
 
     # Performance / Genauigkeit
     use_box_collision: bool = False
-    fixed_time_step: float = 1 / 480
+    fixed_time_step: float = 1 / 960
     solver_iterations: int = 60
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
-    max_simulation_steps: int = 500
+    max_simulation_steps: int = 400
     min_simulation_steps: int = 100
-    settle_check_interval: int = 60
+    settle_check_interval: int = 100
 
     #Abbruchkriterium: Höhe ändert sich weniger als das
     height_change_mm: float = 0.2
@@ -53,10 +53,10 @@ class SimulationConfig:
     flatten_torque_scale: float = 0.2
 
     # Verdichtung durch Rütteln der Artikel
-    settle_duration: float = 2
-    settle_force_scale: float = 0.5
-    settle_frequency: float = 5.0
-    settle_pause_ratio: float = 0.2
+    settle_duration: float = 0.2
+    settle_force_scale: float = 0.6
+    settle_frequency: float = 50.0
+    settle_pause_ratio: float = 0.02
     collision_margin: float = 0.00002
     fit_height_tolerance: float = 0.015
     random_seed: Optional[int] = 42
@@ -869,6 +869,8 @@ class PackagingSimulation:
         print("Simuliere physikalischen Fall...")
 
         # Phase 1: freier Fall, bis alle Artikel zur Ruhe gekommen sind
+        self.model.opt.timestep = 0.002
+        self.model.opt.iterations = 20
         self._step_until_settled()
 
         # Abbruch bei zu hoher Füllhöhe, nach dem Fall
@@ -876,15 +878,19 @@ class PackagingSimulation:
         if filling_height > cfg.box_z * cfg.early_validation_factor:
             return
 
-        p.setGravity(0, 0, -200)
+        p.setGravity(0, 0, -80)
 
+        self.model.opt.timestep = 0.001
+        self.model.opt.iterations = 50
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,
-            force_scale=cfg.settle_force_scale,
-            frequency=cfg.settle_frequency,
-        )
+            force_scale=cfg.settle_force_scale,    
+            frequency=cfg.settle_frequency,)
 
         # Phase 2: nach den Verdichtungs-Impulsen erneut ausruhen lassen
+        self.model.opt.timestep = 0.0005
+        self.model.opt.iterations = 100
+
         self._step_until_settled()
 
         if cfg.enable_top_article_flattening:

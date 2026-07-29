@@ -70,7 +70,7 @@ def _load_bulk_boxes(
 
     # Sicherheitsfaktor: rechne konservativer als die geschaetzte Packdichte.
     # Beispiel: 0.35 / 1.25 = 0.28 effektiv nutzbare Dichte.
-    safety_factor = 1.3
+    safety_factor = 1
     usable_packing_density = packing_density / safety_factor
 
     fitting_boxes: list[tuple[float, Box]] = []
@@ -118,6 +118,23 @@ def _load_bulk_boxes(
 
     return [box for _, box in fallback_boxes]
 
+def _unique_boxes_by_dimensions(boxes: list[Box]) -> list[Box]:
+    """Entfernt Boxen mit identischen Abmessungen, unabhaengig von L/W-Reihenfolge."""
+    unique: list[Box] = []
+    seen_dimensions: set[tuple[float, float, float]] = set()
+
+    for box in boxes:
+        base_a, base_b = sorted((box.length, box.width), reverse=True)
+        dimensions = (base_a, base_b, box.height)
+
+        if dimensions in seen_dimensions:
+            continue
+
+        seen_dimensions.add(dimensions)
+        unique.append(box)
+
+    return unique
+
 
 def load_boxes_from_csv(
     csv_path: str,
@@ -137,10 +154,11 @@ def load_boxes_from_csv(
 
     if bulk:
         boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
-        limit = 25
+        limit = 10
     else:
         boxes = _load_pattern_boxes(rows, total_article_volume, stability)
         limit = 200
 
+    boxes = _unique_boxes_by_dimensions(boxes)
     boxes.sort(key=lambda box: box.volume)
     return boxes[:limit]
