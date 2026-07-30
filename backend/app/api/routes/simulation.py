@@ -3,9 +3,7 @@
 from fastapi import APIRouter, HTTPException
 import traceback
 from pydantic import BaseModel
-# SimulationConfig bleibt die gemeinsame Datenklasse aus sim.py;
-# gerechnet wird mit der MuJoCo-Engine.
-from app.simulation.sim import SimulationConfig
+from app.simulation.common import SimulationConfig
 from app.simulation.sim_mujoco import (
     PackagingSimulation,
     estimate_bulk_packing_density,

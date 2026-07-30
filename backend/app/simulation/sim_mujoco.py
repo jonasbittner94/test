@@ -37,21 +37,21 @@ import numpy as np
 import trimesh
 
 from app.packing.models import Box
-from app.simulation.sim import (
+from app.simulation.common import (
     SimulationConfig,
     _build_dynamic_reference_boxes,
     _get_best_valid_results,
 )
 
 # Pendant zu lateralFriction / spinningFriction / rollingFriction in sim.py
-ARTICLE_FRICTION = 0.2
-SPINNING_FRICTION = 0.01
-ROLLING_FRICTION = 0.01
-JOINT_DAMPING = 0.08
+object_friction = 0.2
+spinning_friction = 0.01
+rolling_friction = 0.01
+joint_damping = 0.08
 
 # Ersatz-Schwerkraft waehrend des Ruettelns; entspricht dem Aufstossen der
 # Kiste beim Befuellen. Am Fall 1754449 kalibriert -- siehe Modul-Docstring.
-COMPACTION_GRAVITY = -200.0
+pressing_gravity = -60.0
 
 
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
@@ -75,7 +75,7 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
     result = {
         key: sum(run[key] for run in runs) / n_runs
         for key in runs[0]
-        if key != "fits_in_box"
+        if key not in ("fits_in_box", "aborted")
     }
 
     mean_height = result["filling_height_mm"]
@@ -85,6 +85,8 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
     result["fits_in_box"] = mean_height <= box.height * (1 + config.fit_height_tolerance)
     result["filling_height_std_mm"] = variance**0.5
     result["runs_per_box"] = n_runs
+    result["aborted"] = any(run["aborted"] for run in runs)
+
 
     # Effektiver Seed des ERSTEN Laufs -> erlaubt exakte Reproduktion im GUI
     result["random_seed"] = (
@@ -212,6 +214,8 @@ class PackagingSimulation:
         self.article_y = self.item.width / 1000
         self.article_z = self.item.height / 1000
 
+        self._aborted = False
+
     def run(self) -> dict:
         boxes = self.config.boxes
 
@@ -257,7 +261,11 @@ class PackagingSimulation:
             self._simulate()
             results = self._evaluate()
 
-            if self.config.use_gui:
+            results["aborted"] = self._aborted
+            if self._aborted:
+                results["fits_in_box"] = False
+
+            if self.config.use_gui and not self._aborted:
                 self._hold_gui_open()
 
             return results
@@ -366,7 +374,7 @@ class PackagingSimulation:
         # denselben Wert, sonst bremst der hoehere die Artikel aus
         friction = (
             f'condim="6" '
-            f'friction="{ARTICLE_FRICTION} {SPINNING_FRICTION} {ROLLING_FRICTION}"'
+            f'friction="{object_friction} {spinning_friction} {rolling_friction}"'
         )
         stl_path = str(Path(cfg.stl_file).resolve()).replace("\\", "/")
 
@@ -392,7 +400,7 @@ class PackagingSimulation:
             f'''
       <body name="article_{i}" pos="{s["pos"][0]:.6g} {s["pos"][1]:.6g} {s["pos"][2]:.6g}"
             quat="{s["quat"][0]:.6g} {s["quat"][1]:.6g} {s["quat"][2]:.6g} {s["quat"][3]:.6g}">
-        <joint type="free" damping="{JOINT_DAMPING}"/>
+        <joint type="free" damping="{joint_damping}"/>
         {collision_geoms}
         <geom type="mesh" mesh="visual" contype="0" conaffinity="0" mass="0" group="1" rgba="0.7 0.7 0.7 1"/>
       </body>'''
@@ -405,23 +413,25 @@ class PackagingSimulation:
         half_y = cfg.box_y / 2
         half_t = cfg.wall_thickness / 2
         walls = f'''
-      <geom type="box" size="{half_x:.6g} {half_y:.6g} {half_t:.6g}"
+        
+      <!-- Boden -->
+      <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_y+cfg.wall_thickness:.6g} {half_t:.6g}"
             pos="0 0 {half_t:.6g}" {friction} rgba="0.85 0.85 0.85 1"/>
       <geom type="box" size="{half_t:.6g} {half_y:.6g} {wall_height / 2:.6g}"
             pos="{half_x + half_t:.6g} 0 {wall_center_z:.6g}" {friction} rgba="0 0 0 0"/>
       <geom type="box" size="{half_t:.6g} {half_y:.6g} {wall_height / 2:.6g}"
             pos="{-half_x - half_t:.6g} 0 {wall_center_z:.6g}" {friction} rgba="0 0 0 0"/>
-      <geom type="box" size="{half_x:.6g} {half_t:.6g} {wall_height / 2:.6g}"
+      <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_t:.6g} {wall_height / 2:.6g}"
             pos="0 {half_y + half_t:.6g} {wall_center_z:.6g}" {friction} rgba="0 0 0 0"/>
-      <geom type="box" size="{half_x:.6g} {half_t:.6g} {wall_height / 2:.6g}"
+      <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_t:.6g} {wall_height / 2:.6g}"
             pos="0 {-half_y - half_t:.6g} {wall_center_z:.6g}" {friction} rgba="0 0 0 0"/>
       <geom type="box" size="{half_t:.6g} {half_y:.6g} {visual_height / 2:.6g}"
             pos="{half_x + half_t:.6g} 0 {visual_center_z:.6g}" contype="0" conaffinity="0" rgba="0.2 0.6 1.0 0.35"/>
       <geom type="box" size="{half_t:.6g} {half_y:.6g} {visual_height / 2:.6g}"
             pos="{-half_x - half_t:.6g} 0 {visual_center_z:.6g}" contype="0" conaffinity="0" rgba="0.2 0.6 1.0 0.35"/>
-      <geom type="box" size="{half_x:.6g} {half_t:.6g} {visual_height / 2:.6g}"
+      <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_t:.6g} {visual_height / 2:.6g}"
             pos="0 {half_y + half_t:.6g} {visual_center_z:.6g}" contype="0" conaffinity="0" rgba="0.2 0.6 1.0 0.35"/>
-      <geom type="box" size="{half_x:.6g} {half_t:.6g} {visual_height / 2:.6g}"
+      <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_t:.6g} {visual_height / 2:.6g}"
             pos="0 {-half_y - half_t:.6g} {visual_center_z:.6g}" contype="0" conaffinity="0" rgba="0.2 0.6 1.0 0.35"/>'''
 
         # Ohne <statistic> rahmt MuJoCo die Kamera anhand der hohen (aber
@@ -476,6 +486,10 @@ class PackagingSimulation:
     #
 
     def _step(self) -> None:
+        if self._viewer is not None and not self._viewer.is_running():
+            self._aborted = True
+            return
+
         mujoco.mj_step(self.model, self.data)
 
         if not (self.config.use_gui and self._viewer is not None):
@@ -514,7 +528,7 @@ class PackagingSimulation:
 
         # Phase 2: verdichten. Erhoehte Schwerkraft + horizontales Ruetteln
         # entspricht dem Aufstossen der Kiste und erzeugt die reale Dichte.
-        self.model.opt.gravity[2] = COMPACTION_GRAVITY
+        self.model.opt.gravity[2] = pressing_gravity
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,
             force_scale=cfg.settle_force_scale,

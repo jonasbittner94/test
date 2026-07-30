@@ -137,7 +137,7 @@ def load_boxes_from_csv(
 
     if bulk:
         boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
-        limit = 25
+        limit = 10
     else:
         boxes = _load_pattern_boxes(rows, total_article_volume, stability)
         limit = 200

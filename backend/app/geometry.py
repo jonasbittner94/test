@@ -38,9 +38,15 @@ def _vhacd_params_tag() -> str:
 def ensure_vhacd_collision_mesh(stl_path: str | Path) -> Path:
     """Erzeugt (einmalig) eine konvexe Zerlegung (VHACD) der STL für die Physik.
 
-    PyBullet behandelt dynamische GEOM_MESH-Körper immer als konvexe Hülle --
-    konkave Artikel (Vertiefungen, Löcher, L-Formen) kollidieren damit falsch.
-    Erst die Zerlegung in konvexe Teile macht die Kollision formtreu.
+    MuJoCo kollidiert ein Mesh-Geom immer als konvexe Hülle (PyBullet ebenso) --
+    konkave Artikel (Vertiefungen, Löcher, L-Formen) kollidieren damit falsch
+    und die Schüttung wird zu locker. Erst die Zerlegung in mehrere konvexe
+    Teilkörper macht die Kollision formtreu. sim_mujoco._parse_obj_groups legt
+    daraus je Teil ein eigenes Geom an.
+
+    ACHTUNG: pybullet wird hier NUR als VHACD-Werkzeug benutzt, nicht als
+    Physik-Engine -- gerechnet wird ausschließlich mit MuJoCo. Der Aufruf
+    passiert einmal pro STL beim Upload, nicht im Simulationslauf.
 
     Das Ergebnis wird neben der STL gecacht (<name>.vhacd-<tag>.obj) und nur
     neu berechnet, wenn die STL neuer ist oder VHACD_PARAMS geändert wurden.
