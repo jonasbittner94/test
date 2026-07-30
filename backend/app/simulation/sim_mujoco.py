@@ -53,8 +53,6 @@ joint_damping = 0.08
 # Kiste beim Befuellen. Am Fall 1754449 kalibriert -- siehe Modul-Docstring.
 pressing_gravity = -60.0
 
-lid_pressure_pa = 1500.0
-
 
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
     config, box, box_index = args
@@ -625,34 +623,6 @@ class PackagingSimulation:
             max_z = max(max_z, top)
         return max_z
 
-    def _count_escaped_articles(self, tolerance: float = 0.002) -> int:
-        """Zaehlt Artikel, deren Kollisionsteile seitlich oder nach unten aus
-        der Box herausragen. Nach oben wird nicht geprueft -- das ist die
-        Fuellhoehe, kein Fehler."""
-        cfg = self.config
-        half_x, half_y = cfg.box_x / 2, cfg.box_y / 2
-        escaped: set[int] = set()
-
-        for geom_id, vertices in self._article_geom_vertices:
-            rotation = self.data.geom_xmat[geom_id].reshape(3, 3)
-            pos = self.data.geom_xpos[geom_id]
-
-            x = vertices @ rotation[0, :] + pos[0]
-            y = vertices @ rotation[1, :] + pos[1]
-            z = vertices @ rotation[2, :] + pos[2]
-
-            if (
-                x.max() > half_x + tolerance
-                or x.min() < -half_x - tolerance
-                or y.max() > half_y + tolerance
-                or y.min() < -half_y - tolerance
-                or z.min() < cfg.wall_thickness - tolerance
-            ):
-                # ueber die Body-ID, sonst zaehlt ein VHACD-Artikel mehrfach
-                escaped.add(int(self.model.geom_bodyid[geom_id]))
-
-        return len(escaped)
-
     def _step_until_settled(self) -> None:
         """Laeuft, bis sich nichts mehr nennenswert bewegt."""
         cfg = self.config
@@ -700,9 +670,15 @@ class PackagingSimulation:
 
     def _evaluate(self) -> dict:
         cfg = self.config
-        
 
-        filling_height = self._current_max_z() - cfg.wall_thickness
+        # Oberkante der Schuettung. Fuer die Kennzahlen zaehlt die Unterkante des
+        # abgesetzten Deckels -- ausser die Simulation brach vorher ab.
+        settled_height = self._current_max_z() - cfg.wall_thickness
+        filling_height = (
+            self._lid_bottom_z - cfg.wall_thickness
+            if self._lid_bottom_z is not None
+            else settled_height
+        )
 
         # Echtes Mesh-Volumen (mm^3 -> m^3) statt Bounding-Box-Quader
         if cfg.mesh_volume > 0:
@@ -715,7 +691,7 @@ class PackagingSimulation:
             single_article_volume = self.article_x * self.article_y * self.article_z
 
         total_article_volume = cfg.item_quantity * single_article_volume
-        used_box_volume = cfg.box_x * cfg.box_y * filling_height
+        used_box_volume = cfg.box_x * cfg.box_y * settled_height
         box_volume = cfg.box_x * cfg.box_y * cfg.box_z
 
         # Packdichte = wie dicht die Schuettung IN SICH ist. NICHT durch das
@@ -724,26 +700,17 @@ class PackagingSimulation:
             total_article_volume / used_box_volume if used_box_volume > 0 else 0
         )
 
-        fits_in_box = filling_height <= cfg.box_z * (1 + cfg.fit_height_tolerance)
-
         # Auslastung der GESAMTEN Box (Ranking: hoch = wenig verschenkter Platz)
         box_utilization = total_article_volume / box_volume if box_volume > 0 else 0
 
-        if self._lid_bottom_z is not None:
-            filling_height = self._lid_bottom_z - cfg.wall_thickness
-        else:
-            filling_height = self._current_max_z() - cfg.wall_thickness
-
         results = {
-            "filling_height_m": filling_height,
             "filling_height_mm": filling_height * 1000,
             "relative_filling_height_percent": filling_height / cfg.box_z * 100,
             "total_article_volume_cm3": total_article_volume * 1_000_000,
             "used_box_volume_cm3": used_box_volume * 1_000_000,
             "packing_density_percent": packing_density * 100,
-            "fits_in_box": fits_in_box,
+            "fits_in_box": settled_height <= cfg.box_z * (1 + cfg.fit_height_tolerance),
             "fill_rate_percent": box_utilization * 100,
-            "escaped_articles": self._count_escaped_articles(),
         }
 
         self._print_results(results)

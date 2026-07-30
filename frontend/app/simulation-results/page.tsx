@@ -12,12 +12,8 @@ type SimulationBox = {
 
 type SimulationResult = {
   box: SimulationBox;
-  filling_height_m: number;
   filling_height_mm: number;
   relative_filling_height_percent: number;
-  total_article_volume_cm3: number;
-  used_box_volume_cm3: number;
-  packing_density_percent: number;
   fill_rate_percent: number;
   articles_per_lhm?: number;
   random_seed?: number | null;
@@ -69,8 +65,6 @@ export default function PackingResultsPage() {
           },
           body: JSON.stringify({
             config: simulationRequest,
-            box_name: result.box.name,
-            estimated_density: result.packing_density_percent / 100,
             random_seed: result.random_seed ?? null,
             box: {
               name: result.box.name,

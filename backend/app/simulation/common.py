@@ -40,10 +40,6 @@ class SimulationConfig:
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)
     max_simulation_steps: int = 1000
     min_simulation_steps: int = 100
-    settle_check_interval: int = 60
-
-    # Abbruchkriterium: Hoehe aendert sich weniger als das
-    height_change_mm: float = 0.2
 
     # Sofortiger Abbruch, wenn die Fuellhoehe nach dem Einfuellen zu hoch ist
     early_validation_factor: float = 2
@@ -63,17 +59,6 @@ class SimulationConfig:
     parallel_simulations: bool = True
     max_workers: Optional[int] = None
 
-    # Stabile Box-Vorfilterung
-    packing_density_fallback: float = 0.30
-    packing_density_min: float = 0.12
-    packing_density_max: float = 0.8
-    prefilter_safety_factor: float = 1.5
-    prefilter_fallback_candidates: int = 5
-
-    # Wenn keine Box laut Simulation passt, trotzdem beste Alternative liefern
-    return_best_invalid_if_no_valid: bool = True
-    diagnostic_tolerance_mm: float = 1.0
-
     @property
     def box_x(self) -> float:
         return self.boxes[0].length / 1000
@@ -87,10 +72,7 @@ class SimulationConfig:
         return self.boxes[0].height / 1000
 
 
-def _get_best_valid_results(
-    simulation_results: list[dict],
-    limit: int | None = None,
-) -> list[dict]:
+def _get_best_valid_results(simulation_results: list[dict]) -> list[dict]:
     valid_results = [
         result
         for result in simulation_results
@@ -103,7 +85,7 @@ def _get_best_valid_results(
         reverse=True,
     )
 
-    return valid_results if limit is None else valid_results[:limit]
+    return valid_results
 
 
 def _get_single_article_volume_m3(config: SimulationConfig) -> float:

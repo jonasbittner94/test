@@ -6,12 +6,6 @@ class Item:
     width: float
     height: float
 
-    @property
-    def volume(self):
-            return self.length * self.width * self.height
-
-            
-
     def orientations(self):
         return [
             {"rotation_key": "xyz", "dimensions": (self.length, self.width, self.height)},

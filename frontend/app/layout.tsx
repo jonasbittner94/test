@@ -1,14 +1,7 @@
 "use client";
-import type { Metadata } from "next";
 import "./styles/globals.css";
-import Providers from "./providers";
 import "bootstrap/dist/css/bootstrap.min.css";
 import SiteNavbar from "@/components/ui/navBar";
-
-const metadata: Metadata = {
-  title: "PackageFinder",
-  description: "Your Tool to find the right packaging",
-};
 
 export default function RootLayout({
   children,
@@ -29,7 +22,7 @@ export default function RootLayout({
         </header>
 
         <main style={{ maxWidth: 900, margin: "24px auto", padding: "0 16px" }}>
-          <Providers>{children}</Providers>
+          {children}
         </main>
 
         <footer

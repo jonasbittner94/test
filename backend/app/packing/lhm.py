@@ -9,11 +9,10 @@ EPS = 1e-9
 
 
 def get_lhm_capacity(box: Box) -> int:
-    best = None
+    # 0 = Box passt in keiner Orientierung auf das LHM
+    best = 0
 
-    for dims in set(permutations((box.length, box.width, box.height))):
-        L, W, H = dims
-
+    for L, W, H in set(permutations((box.length, box.width, box.height))):
         if (
             L > LHM_LENGTH + EPS
             or W > LHM_WIDTH + EPS
@@ -21,19 +20,11 @@ def get_lhm_capacity(box: Box) -> int:
         ):
             continue
 
-        nx = floor((LHM_LENGTH + EPS) / L)
-        ny = floor((LHM_WIDTH + EPS) / W)
-        nz = floor((LHM_HEIGHT + EPS) / H)
-        count = nx * ny * nz
+        count = (
+            floor((LHM_LENGTH + EPS) / L)
+            * floor((LHM_WIDTH + EPS) / W)
+            * floor((LHM_HEIGHT + EPS) / H)
+        )
+        best = max(best, count)
 
-        if best is None or count > best["capacity"]:
-            best = {
-                "box": box.name,
-                "capacity": count,
-            }
-
-    # Box passt in keiner Orientierung auf das LHM -> keine Kapazitaet
-    if best is None:
-        return 0
-
-    return best["capacity"]
+    return best

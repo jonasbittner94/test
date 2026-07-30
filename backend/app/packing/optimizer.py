@@ -11,10 +11,10 @@ from app.packing.lhm import get_lhm_capacity
 class PackingOptimizer:
     item: Item
     quantity: int
-    boxes: List[Box]
+    boxes: List[Box] = field(default_factory=list)
     pattern: Optional[Dict] = None
     mesh_volume: Optional[float] = None
-    fill_remaining_space: bool = True
+    fill_residual: bool = True
 
 
     # numerische toleranz gegen rundungsfehler beim vergleichen von massen
@@ -53,7 +53,6 @@ class PackingOptimizer:
                 "x": x0 + i * length + length / 2,
                 "y": y0 + j * width + width / 2,
                 "z": z0 + k * height + height / 2,
-                "orientation": (length, width, height),
                 "rotation_key": best_fit["rotation_key"],
                 "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
                 "pattern_index": None,
@@ -88,9 +87,9 @@ class PackingOptimizer:
     # Pattern-Daten & Ueberlappung aus der 3D-Anordnung
     #
 
-    def _get_pattern_data(self):
-        """normalisiert das packmuster in den ursprung und liefert abmessungen,
-        artikelanzahl und das mittlere artikelvolumen."""
+    def _normalized_elements(self):
+        """packmuster-elemente mit ausgedrehten abmessungen, in den ursprung
+        verschoben. none, wenn kein packmuster vorliegt."""
         if not self.pattern:
             return None
 
@@ -98,25 +97,24 @@ class PackingOptimizer:
         if not elements:
             return None
 
-        prepared_elements = []
-        for element in elements:
-            rotation = element.get("rotation", {"x": 0.0, "y": 0.0, "z": 0.0})
-            rotated_size = self._rotated_size(element["size"], rotation)
-
-            prepared_elements.append(
-                {
-                    "index": element["index"],
-                    "position": element["position"],
-                    "rotation": rotation,
-                    "size": rotated_size,
-                }
-            )
+        prepared_elements = [
+            {
+                "index": element["index"],
+                "position": element["position"],
+                "rotation": element.get("rotation", {"x": 0.0, "y": 0.0, "z": 0.0}),
+                "size": self._rotated_size(
+                    element["size"],
+                    element.get("rotation", {"x": 0.0, "y": 0.0, "z": 0.0}),
+                ),
+            }
+            for element in elements
+        ]
 
         min_x = min(element["position"]["x"] for element in prepared_elements)
         min_y = min(element["position"]["y"] for element in prepared_elements)
         min_z = min(element["position"]["z"] for element in prepared_elements)
 
-        normalized_elements = [
+        return [
             {
                 "index": element["index"],
                 "position": {
@@ -130,25 +128,19 @@ class PackingOptimizer:
             for element in prepared_elements
         ]
 
-        max_x = max(element["position"]["x"] + element["size"]["x"] for element in normalized_elements)
-        max_y = max(element["position"]["y"] + element["size"]["y"] for element in normalized_elements)
-        max_z = max(element["position"]["z"] + element["size"]["z"] for element in normalized_elements)
+    def effective_article_volume(self) -> float:
+        """Artikelvolumen fuer die Box-Vorfilterung. Bei starker Ueberlappung ist
+        der Rasterabstand kleiner als das Mesh -> dann zaehlt der Raster-Quader."""
+        elements = self._normalized_elements()
+        if not elements:
+            return self.mesh_volume
 
-        pattern_length = max_x
-        pattern_width = max_y
-        pattern_height = max_z
-        pattern_count = len(normalized_elements)
-        pattern_volume = pattern_length * pattern_width * pattern_height
-        article_volume = pattern_volume / pattern_count if pattern_count > 0 else 0
-
-        return {
-            "elements": normalized_elements,
-            "length": pattern_length,
-            "width": pattern_width,
-            "height": pattern_height,
-            "count": pattern_count,
-            "normArtVol": article_volume,
-        }
+        step_volume = (
+            self._pattern_step(elements, "x", self.item.length)
+            * self._pattern_step(elements, "y", self.item.width)
+            * self._pattern_step(elements, "z", self.item.height)
+        )
+        return min(self.mesh_volume, step_volume)
 
     def _pattern_step(self, elements, key: str, full_dimension: float) -> float:
         """schrittweite entlang einer achse = kleinster abstand zwischen zwei
@@ -162,11 +154,6 @@ class PackingOptimizer:
             return full_dimension
 
         return min(gaps)
-    
-    def _pattern_spacing(self, step: float, full_dimension: float) -> float:
-        """abstand zwischen zwei artikeln entlang einer achse.
-        negativ = overlap, 0 = buendig, positiv = luecke."""
-        return step - full_dimension
 
     def _fits_overlap(self, point, full_dims, effective_dims, box: Box, placements) -> bool:
         """passt der artikel an diesen punkt, ohne die box zu verlassen und ohne
@@ -223,7 +210,7 @@ class PackingOptimizer:
         )
         return lookup, pattern_grid
 
-    def _find_best_orientation(self, box: Box, base_dimensions, base_steps, base_spacing):
+    def _find_best_orientation(self, box: Box, base_dimensions, base_steps):
 
         """sucht die orientierung, die die menge mit dem wenigsten verschenkten
         platz unterbringt."""
@@ -240,10 +227,6 @@ class PackingOptimizer:
             step_x = base_steps[axis_x]
             step_y = base_steps[axis_y]
             step_z = base_steps[axis_z]
-
-            spacing_x = base_spacing[axis_x]
-            spacing_y = base_spacing[axis_y]
-            spacing_z = base_spacing[axis_z]
 
             if (
                 length > box.length + self._toleranz
@@ -269,14 +252,14 @@ class PackingOptimizer:
             residual_positions = []
             residual_count = 0
 
-            if self.fill_remaining_space:
+            if self.fill_residual:
 
                 regions = [
                     (used_x, 0.0, 0.0, box.length - used_x, box.width, box.height),
                     (0.0, used_y, 0.0, used_x, box.width - used_y, box.height),
                     (0.0, 0.0, used_z, used_x, used_y, box.height - used_z),
                 ]
-                
+
                 for region in regions:
                     region_positions, region_count = self._fill_remaining_space(region, unique_orientations)
                     residual_positions += region_positions
@@ -303,8 +286,6 @@ class PackingOptimizer:
                     "rotation_key": orientation["rotation_key"],
                     "dims": (length, width, height),
                     "steps": (step_x, step_y, step_z),
-                    "spacing": (spacing_x, spacing_y, spacing_z),
-                    "grid": (count_x, count_y, count_z),
                     "capacity": total_capacity,
                     "residual_positions": residual_positions,
                     "score": score,
@@ -363,7 +344,6 @@ class PackingOptimizer:
                         "x": px + length / 2,
                         "y": py + width / 2,
                         "z": pz + height / 2,
-                        "orientation": full_dims,
                         "rotation_key": rotation_key,
                         "rotation": pattern_match["rotation"],
                         "pattern_index": pattern_match["index"],
@@ -381,10 +361,9 @@ class PackingOptimizer:
 
         return positions
 
-    def _build_result(self, box: Box, best, pattern_data, positions):
+    def _build_result(self, box: Box, best, positions):
         """baut das ergebnis-dict fuer eine box (masse, fuellgrad, positionen)."""
         article_length, article_width, article_height = best["dims"]
-        spacing_x, spacing_y, spacing_z = best["spacing"]
 
         if self.mesh_volume is not None:
             single_volume = self.mesh_volume
@@ -392,10 +371,6 @@ class PackingOptimizer:
             single_volume = article_length * article_width * article_height
 
         used_volume = single_volume * self.quantity
-        fill_rate = used_volume / box.volume if box.volume > 0 else 0.0
-        empty_volume = box.volume - used_volume
-
-        count_x, count_y, count_z = best["grid"]
 
         return {
             "box": box.name,
@@ -409,30 +384,9 @@ class PackingOptimizer:
                 "width": article_width,
                 "height": article_height,
             },
-            "spacing": {
-                "x": spacing_x,
-                "y": spacing_y,
-                "z": spacing_z,
-            },
-            "orientation": best["dims"],
-            "rotation_key": best["rotation_key"],
             "scaledLength": self.item.length,
-            "pattern": {
-                "length": pattern_data["length"],
-                "width": pattern_data["width"],
-                "height": pattern_data["height"],
-                "count": pattern_data["count"],
-            },
-            "grid": {
-                "nx": count_x,
-                "ny": count_y,
-                "nz": count_z,
-            },
             "capacity": best["capacity"],
-            "lhm_capacity": self.quantity * box.lhm_capacity,
-            "fill_rate": fill_rate,
-            "empty_volume": empty_volume,
-            "used_volume": used_volume,
+            "fill_rate": used_volume / box.volume if box.volume > 0 else 0.0,
             "positions": positions,
         }
 
@@ -459,11 +413,9 @@ class PackingOptimizer:
         }
 
     def _pack_pattern(self, box: Box):
-        pattern_data = self._get_pattern_data()
-        if not pattern_data:
+        elements = self._normalized_elements()
+        if not elements:
             return None
-
-        elements = pattern_data["elements"]
 
         base_dimensions = {
             "x": max(element["size"]["x"] for element in elements),
@@ -475,19 +427,13 @@ class PackingOptimizer:
             return None
 
         base_steps = {
-            "x": self._pattern_step(elements, "x", base_dimensions["x"]),
-            "y": self._pattern_step(elements, "y", base_dimensions["y"]),
-            "z": self._pattern_step(elements, "z", base_dimensions["z"]),
-        }
-
-        base_spacing = {
-            axis: self._pattern_spacing(base_steps[axis], base_dimensions[axis])
+            axis: self._pattern_step(elements, axis, base_dimensions[axis])
             for axis in ("x", "y", "z")
         }
 
         pattern_lookup, pattern_grid = self._build_pattern_lookup(elements, base_steps)
 
-        best = self._find_best_orientation(box, base_dimensions, base_steps, base_spacing)
+        best = self._find_best_orientation(box, base_dimensions, base_steps)
         if best is None:
             return None
 
@@ -501,34 +447,21 @@ class PackingOptimizer:
         if len(positions) < self.quantity:
             return None
 
-        return self._build_result(box, best, pattern_data, positions)
+        return self._build_result(box, best, positions)
 
     #
     # Box-Auswahl & Ranking
     #
 
-    def evaluate_box(self, box: Box):
-        if self.pattern:
-            return self._pack_pattern(box)
-        return None
-
     def find_top_boxes(self, limit: int = 5):
-        seen_dimensions: set[tuple[float, float, float]] = set()
+        # box_loader hat bereits nach Abmessungen dedupliziert
         candidates = []
 
         for box in self.boxes:
-            dimensions = (box.length, box.width, box.height)
-            if dimensions in seen_dimensions:
-                continue
-            seen_dimensions.add(dimensions)
-
-            result = self.evaluate_box(box)
+            result = self._pack_pattern(box) if self.pattern else None
             if result:
                 result["lhm_capacity"] = get_lhm_capacity(box)
                 candidates.append(result)
-
-        if not candidates:
-            return []
 
         candidates.sort(
             key=lambda result: result["box_dimensions"]["length"]

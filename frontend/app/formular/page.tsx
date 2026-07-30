@@ -19,6 +19,18 @@ type UploadResult = {
   item: ItemObject;
 };
 
+const errorBadgeStyle: React.CSSProperties = {
+  color: "#991b1b",
+  backgroundColor: "#fee2e2",
+  border: "1px solid #fca5a5",
+  borderRadius: "9999px",
+  padding: "6px 12px",
+  fontSize: "14px",
+  fontWeight: 600,
+  marginTop: "6px",
+  marginBottom: "6px",
+};
+
 export default function FormPage() {
   const router = useRouter();
 
@@ -35,23 +47,11 @@ export default function FormPage() {
     itemQuantity: "",
     scaled_length: "",
   });
-  const [isBulkGood, setIsBulkGood] = useState<boolean>(false);
   const [cadFileUploaded, setCadFileUploaded] = useState(false);
   const [uploadedItem, setUploadedItem] = useState<ItemObject | null>(null);
   const [uploadedStlFile, setUploadedStlFile] = useState("");
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationError, setSimulationError] = useState("");
-
-  const handleBulkGoodChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const checked = event.target.checked;
-
-    setIsBulkGood(checked);
-
-    setFormData((prev) => ({
-      ...prev,
-      bulkGoods: checked,
-    }));
-  };
 
   //Hochladen der CAD-Datei
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,8 +165,6 @@ export default function FormPage() {
       localStorage.setItem("simulationResult", JSON.stringify(result));
 
       router.push("/simulation-results");
-
-      console.log(result);
     } catch (error) {
       setSimulationError(
         error instanceof Error
@@ -225,9 +223,7 @@ export default function FormPage() {
       return;
     }
 
-    if (!isBulkGood) {
-      router.push("/positioning");
-    }
+    router.push("/positioning");
   };
 
   return (
@@ -247,23 +243,7 @@ export default function FormPage() {
             />
           </Form.Group>
           {/*Validation der Datei*/}
-          {errors.file && (
-            <span
-              style={{
-                color: "#991b1b",
-                backgroundColor: "#fee2e2",
-                border: "1px solid #fca5a5",
-                borderRadius: "9999px",
-                padding: "6px 12px",
-                fontSize: "14px",
-                fontWeight: 600,
-                marginTop: "6px",
-                marginBottom: "6px",
-              }}
-            >
-              {errors.file}
-            </span>
-          )}
+          {errors.file && <span style={errorBadgeStyle}>{errors.file}</span>}
 
           {/* Artikelanzahl definieren */}
           <Form.Group
@@ -299,21 +279,7 @@ export default function FormPage() {
 
           {/*Validation der Artikelanzahl*/}
           {errors.itemQuantity && (
-            <span
-              style={{
-                color: "#991b1b",
-                backgroundColor: "#fee2e2",
-                border: "1px solid #fca5a5",
-                borderRadius: "9999px",
-                padding: "6px 12px",
-                fontSize: "14px",
-                fontWeight: 600,
-                marginTop: "6px",
-                marginBottom: "6px",
-              }}
-            >
-              {errors.itemQuantity}
-            </span>
+            <span style={errorBadgeStyle}>{errors.itemQuantity}</span>
           )}
 
           {/*Schüttgut */}
@@ -326,7 +292,12 @@ export default function FormPage() {
               id="bulkGoods-checkbox"
               label="Schüttgut"
               checked={formData.bulkGoods}
-              onChange={handleBulkGoodChange}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  bulkGoods: event.target.checked,
+                }))
+              }
             />
           </Form.Group>
           {!formData.bulkGoods && (
@@ -335,14 +306,12 @@ export default function FormPage() {
               <Form.Select
                 value={formData.fillResidual ? "fillResidual" : "fixedPattern"}
                 style={{ width: "700px" }}
-                onChange={(e) => {
-                  const fillResidual = e.target.value === "fillResidual";
+                onChange={(e) =>
                   setFormData((prev) => ({
                     ...prev,
-                    fillResidual,
-                  }));
-                  localStorage.setItem("fillResidual", String(fillResidual));
-                }}
+                    fillResidual: e.target.value === "fillResidual",
+                  }))
+                }
               >
                 <option value="fillResidual">Resträume auffüllen</option>
                 <option value="fixedPattern">Festes Muster beibehalten</option>
@@ -359,14 +328,9 @@ export default function FormPage() {
               <Form.Select
                 value={formData.stability}
                 style={{ width: "700px" }}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData((prev) => ({
-                    ...prev,
-                    stability: val,
-                  }));
-                  localStorage.setItem("stability", val);
-                }}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, stability: e.target.value }))
+                }
               >
                 <option value="Beliebig">Beliebig</option>
                 <option value="1E">1E</option>
@@ -393,14 +357,8 @@ export default function FormPage() {
                 setFormData((prev) => ({
                   ...prev,
                   scalable: checked,
+                  scaled_length: checked ? prev.scaled_length : "0",
                 }));
-                if (!checked) {
-                  setFormData((prev) => ({
-                    ...prev,
-                    scaled_length: "0",
-                  }));
-                  localStorage.setItem("scaled_length", "0");
-                }
               }}
             />
           </Form.Group>
@@ -422,13 +380,10 @@ export default function FormPage() {
                     width: "700px",
                   }}
                   onChange={(e) => {
-                    const val = e.target.value;
                     setFormData((prev) => ({
                       ...prev,
-                      scaled_length: val,
+                      scaled_length: e.target.value,
                     }));
-
-                    localStorage.setItem("scaled_length", val);
                     validateForm();
                   }}
                 />

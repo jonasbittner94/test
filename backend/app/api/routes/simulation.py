@@ -27,8 +27,6 @@ class RequestedBox(BaseModel):
 
 class SingleBoxSimulationRequest(BaseModel):
     config: SimulationConfig
-    box_name: str
-    estimated_density: float | None = None
     box: RequestedBox
     # Effektiver Seed des urspruenglichen Laufs -> exakte Reproduktion im GUI.
     random_seed: int | None = None
@@ -53,7 +51,6 @@ def run_simulation(config: SimulationConfig):
     mesh_volume = compute_scaled_volume_mm3(stl_path, config.item.length)
     # Konvexe Zerlegung fuer formtreue Kollision (gecacht, einmalig pro STL).
     collision_path = ensure_vhacd_collision_mesh(stl_path)
-    stability = config.stability
 
     reference_config = replace(
         config,
@@ -65,7 +62,14 @@ def run_simulation(config: SimulationConfig):
     estimated_packing_density = estimate_bulk_packing_density(reference_config)
 
 
-    boxes = load_boxes_from_csv(str(BOXES_CSV), config.item_quantity, bulk=True, mesh_volume=mesh_volume,stability=stability,estimated_packing_density=estimated_packing_density,)
+    boxes = load_boxes_from_csv(
+        str(BOXES_CSV),
+        config.item_quantity,
+        bulk=True,
+        mesh_volume=mesh_volume,
+        stability=config.stability,
+        estimated_packing_density=estimated_packing_density,
+    )
 
     print("mögliche Verpackungen", boxes)
 

@@ -2,8 +2,7 @@
 
 import csv
 from pathlib import Path
-from app.packing.optimizer import Box
-from app.packing.models import Item
+from app.packing.models import Box
 
 
 def _safe_float(value):
@@ -51,7 +50,6 @@ def _load_bulk_boxes(
     total_article_volume: float,
     stability: str,
     estimated_packing_density: float | None,
-    item: Item | None = None,
 ) -> list[Box]:
     """
     Schuettgut-Pfad: robuste Vorfilterung.
@@ -70,11 +68,6 @@ def _load_bulk_boxes(
     else:
         packing_density = _clamp(estimated_packing_density, 0.40, 0.80)
 
-    # Sicherheitsfaktor: rechne konservativer als die geschaetzte Packdichte.
-    # Beispiel: 0.35 / 1.25 = 0.28 effektiv nutzbare Dichte.
-    safety_factor = 1
-    usable_packing_density = packing_density / safety_factor
-
     fitting_boxes: list[tuple[float, Box]] = []
     fallback_boxes: list[tuple[float, Box]] = []
 
@@ -87,14 +80,11 @@ def _load_bulk_boxes(
         if box.volume <= 0:
             continue
 
-        if (min(box.length, box.width, box.height) < 2*min(item.length, item.width, item.height) if item else 0):
-            continue
-
         required_density = total_article_volume / box.volume
 
         # overflow_ratio <= 1 bedeutet:
         # Box ist nach konservativer Packdichte gross genug.
-        overflow_ratio = required_density / usable_packing_density
+        overflow_ratio = required_density / packing_density
 
         if overflow_ratio <= 1.0:
             fitting_boxes.append((overflow_ratio, box))

@@ -1,7 +1,6 @@
 "use client"; //Rendering auf Client-Seite im Browser
 
 import { useState, useEffect, Suspense, Dispatch, SetStateAction } from "react";
-import type { PackingResponse } from "@/lib/packing";
 import { useSearchParams } from "next/navigation";
 import {
   ControlPanel,
@@ -39,10 +38,6 @@ function RenderingContent() {
   const [boundingBox, setBoundingBox] = useState<
     [number, number, number] | null
   >(null);
-  const [exactVolume, setExactVolume] = useState<number | null>(null);
-  const [packingResult, setPackingResult] = useState<PackingResponse | null>(
-    null
-  );
   const [loadingPacking, setLoadingPacking] = useState(false);
   const [packingError, setPackingError] = useState("");
 
@@ -93,73 +88,29 @@ function RenderingContent() {
     setScenePositions(basePositions);
   }, [basePositions]);
 
-  function getElementsData() {
-    return scenePositions.map((position, index) => ({
-      index,
-      position: {
-        x: position[0],
-        y: position[1],
-        z: position[2],
-      },
-      rotation: {
-        x: rotationsX[index] ?? 0,
-        y: rotationsY[index] ?? 0,
-        z: rotationsZ[index] ?? 0,
-      },
-      size: boundingBox
-        ? {
-            x: boundingBox[0],
-            y: boundingBox[1],
-            z: boundingBox[2],
-          }
-        : null,
-    }));
-  }
-
+  // Das Backend normalisiert die Positionen in den Ursprung und leitet die
+  // Musterabmessungen selbst ab -> hier reichen die rohen Elemente.
   function getPatternPayload() {
-    if (!boundingBox) return null;
+    if (!boundingBox || scenePositions.length === 0) return null;
 
-    const elements = getElementsData().filter(
-      (element) => element.size !== null
-    );
-    if (elements.length === 0) return null;
-
-    const minX = Math.min(...elements.map((e) => e.position.x));
-    const minY = Math.min(...elements.map((e) => e.position.y));
-    const minZ = Math.min(...elements.map((e) => e.position.z));
-
-    const normalizedElements = elements.map((element) => ({
-      index: element.index,
-      position: {
-        x: element.position.x - minX,
-        y: element.position.y - minY,
-        z: element.position.z - minZ,
-      },
-      rotation: element.rotation,
-      size: element.size!,
-    }));
-
-    const maxX = Math.max(
-      ...normalizedElements.map((e) => e.position.x + e.size.x)
-    );
-    const maxY = Math.max(
-      ...normalizedElements.map((e) => e.position.y + e.size.y)
-    );
-    const maxZ = Math.max(
-      ...normalizedElements.map((e) => e.position.z + e.size.z)
-    );
+    const [sizeX, sizeY, sizeZ] = boundingBox;
 
     return {
-      length: maxX,
-      width: maxY,
-      height: maxZ,
-      count: normalizedElements.length,
-      elements: normalizedElements,
+      elements: scenePositions.map((position, index) => ({
+        index,
+        position: { x: position[0], y: position[1], z: position[2] },
+        rotation: {
+          x: rotationsX[index] ?? 0,
+          y: rotationsY[index] ?? 0,
+          z: rotationsZ[index] ?? 0,
+        },
+        size: { x: sizeX, y: sizeY, z: sizeZ },
+      })),
     };
   }
+
   const handleSearchPackaging = async () => {
     setPackingError("");
-    setPackingResult(null);
 
     if (!boundingBox) {
       setPackingError("Bounding Box des Artikels ist noch nicht verfügbar.");
@@ -194,20 +145,16 @@ function RenderingContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          item_length: itemLength,
           item_width: itemWidth,
           item_height: itemHeight,
           file_url: activeUrl,
           quantity: itemQuantity,
           scaledLength: scaled_length,
           pattern: pattern,
-          mesh_volume: exactVolume,
           stability: stability,
           fill_residual: fillResidual,
         }),
       });
-
-      console.log(exactVolume);
 
       const data = await response.json();
 
@@ -228,61 +175,40 @@ function RenderingContent() {
     }
   };
 
-  const rightIndices = (() => {
-    const byLayer = new Map<number, { idx: number; x: number }[]>();
+  // Artikel am Rand einer Ebene: je Ebene (y) die Positionen mit minimalem bzw.
+  // maximalem Wert auf der gewaehlten Achse.
+  const edgeIndicesPerLayer = (axis: 0 | 2, pick: "min" | "max") => {
+    const byLayer = new Map<number, number[]>();
     scenePositions.forEach((p, idx) => {
-      const arr = byLayer.get(p[1]) ?? [];
-      arr.push({ idx, x: p[2] });
-      byLayer.set(p[1], arr);
-    });
-    const indices: number[] = [];
-    byLayer.forEach((arr) => {
-      const minY = Math.min(...arr.map((a) => a.x));
-      arr.forEach((a) => {
-        if (a.x === minY) indices.push(a.idx);
-      });
-    });
-    return indices;
-  })();
-
-  const backIndices = (() => {
-    const byLayer = new Map<number, { idx: number; axis: number }[]>();
-
-    scenePositions.forEach((p, idx) => {
-      const arr = byLayer.get(p[1]) ?? [];
-      arr.push({ idx, axis: p[0] });
-      byLayer.set(p[1], arr);
+      byLayer.set(p[1], [...(byLayer.get(p[1]) ?? []), idx]);
     });
 
     const indices: number[] = [];
-    byLayer.forEach((arr) => {
-      const maxAxis = Math.max(...arr.map((a) => a.axis));
-      arr.forEach((a) => {
-        if (a.axis === maxAxis) indices.push(a.idx);
+    byLayer.forEach((layer) => {
+      const values = layer.map((idx) => scenePositions[idx][axis]);
+      const target = pick === "min" ? Math.min(...values) : Math.max(...values);
+      layer.forEach((idx) => {
+        if (scenePositions[idx][axis] === target) indices.push(idx);
       });
     });
     return indices;
-  })();
-
-  const topIndices = (() => {
-    const maxY = Math.max(...scenePositions.map((p) => p[1]));
-    return scenePositions
-      .map((p, idx) => ({ idx, y: p[1] }))
-      .filter((entry) => entry.y === maxY)
-      .map((entry) => entry.idx);
-  })();
+  };
 
   const getTargetIndices = () => {
     switch (rotationMode) {
       case "all":
         return scenePositions.map((_, idx) => idx);
       case "back":
-        return backIndices;
-      case "top":
-        return topIndices;
+        return edgeIndicesPerLayer(0, "max");
+      case "top": {
+        const maxY = Math.max(...scenePositions.map((p) => p[1]));
+        return scenePositions
+          .map((p, idx) => (p[1] === maxY ? idx : -1))
+          .filter((idx) => idx >= 0);
+      }
       case "right":
       default:
-        return rightIndices;
+        return edgeIndicesPerLayer(2, "min");
     }
   };
 
@@ -418,20 +344,6 @@ function RenderingContent() {
 
       {packingError && (
         <p style={{ color: "red", marginTop: "12px" }}>{packingError}</p>
-      )}
-
-      {packingResult && (
-        <pre
-          style={{
-            marginTop: "12px",
-            padding: "12px",
-            background: "#f5f5f5",
-            borderRadius: "8px",
-            overflowX: "auto",
-          }}
-        >
-          {JSON.stringify(packingResult, null, 2)}
-        </pre>
       )}
 
       <div

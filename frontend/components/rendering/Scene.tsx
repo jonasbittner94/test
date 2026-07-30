@@ -1,5 +1,5 @@
 ﻿"use client";
-import { Suspense, useEffect } from "react";
+import { Suspense } from "react";
 import { Canvas } from "@react-three/fiber";
 import {
   OrbitControls,
@@ -8,17 +8,6 @@ import {
   ContactShadows,
 } from "@react-three/drei";
 import { StlModel } from "./STLModel";
-import { Matrix4, Vector3, Euler, Quaternion } from "three";
-
-type RotationTuple = [number, number, number];
-
-export type SavedModelTransform = {
-  index: number;
-  position: [number, number, number];
-  rotationEuler: [number, number, number];
-  quaternion: number[];
-  matrix: number[];
-};
 
 export type SceneProps = {
   url: string;
@@ -32,7 +21,6 @@ export type SceneProps = {
   scaled_length?: number;
   onBoundingBoxChange?: (boundingBox: [number, number, number]) => void;
   resetKey?: number;
-  onTransformsChange?: (transforms: SavedModelTransform[]) => void;
 };
 
 export function Scene({
@@ -47,39 +35,7 @@ export function Scene({
   scaled_length,
   onBoundingBoxChange,
   resetKey = 0,
-  onTransformsChange,
 }: SceneProps) {
-  // Transformationen zum Speichern erzeugen
-  useEffect(() => {
-    const transforms: SavedModelTransform[] = positions.map((position, i) => {
-      const rotationEuler: RotationTuple = [
-        rotationsX[i] ?? 0,
-        rotationsY[i] ?? 0,
-        rotationsZ[i] ?? 0,
-      ];
-
-      const quaternion = new Quaternion().setFromEuler(
-        new Euler(rotationEuler[0], rotationEuler[1], rotationEuler[2], "XYZ")
-      );
-
-      const matrix = new Matrix4().compose(
-        new Vector3(...position),
-        quaternion,
-        new Vector3(1, 1, 1)
-      );
-
-      return {
-        index: i,
-        position,
-        rotationEuler,
-        quaternion: quaternion.toArray(),
-        matrix: matrix.toArray(),
-      };
-    });
-
-    onTransformsChange?.(transforms);
-  }, [positions, rotationsX, rotationsY, rotationsZ, onTransformsChange]);
-
   return (
     <Canvas
       dpr={[1, 2]}

@@ -7,7 +7,6 @@ export type PositionItem = {
   x: number;
   y: number;
   z: number;
-  orientation: [number, number, number];
   rotation_key: RotationKey;
   pattern_index: number | null;
   rotation?: {
@@ -30,19 +29,9 @@ export type PackingResult = {
     width: number;
     height: number;
   };
-  orientation: [number, number, number];
-  rotation_key: RotationKey;
-  capacityLHM: number;
-  grid: {
-    nx: number;
-    ny: number;
-    nz: number;
-  };
   capacity: number;
   lhm_capacity: number;
   fill_rate: number;
-  empty_volume: number;
-  used_volume: number;
   positions: PositionItem[];
 };
 

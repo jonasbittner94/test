@@ -6,21 +6,14 @@ type SliderProps = {
   label: string;
   value: number;
   onChange: (v: number) => void;
-  min?: number;
-  max?: number;
+  min: number;
+  max: number;
   step?: number;
 };
 
 export type RotationMode = "right" | "back" | "top" | "all";
 
-function Slider({
-  label,
-  value,
-  onChange,
-  min = 5,
-  max = 200,
-  step = 1 / 2,
-}: SliderProps) {
+function Slider({ label, value, onChange, min, max, step = 1 / 2 }: SliderProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <label style={{ fontWeight: 600 }}>{label}</label>

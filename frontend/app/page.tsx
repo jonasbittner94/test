@@ -3,8 +3,6 @@
 import Button from "@/components/ui/button";
 import "bootstrap/dist/css/bootstrap.min.css";
 
-import Link from "next/link";
-
 export default function Home() {
   return (
     <main>
