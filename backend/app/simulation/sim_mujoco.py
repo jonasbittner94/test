@@ -53,6 +53,8 @@ joint_damping = 0.08
 # Kiste beim Befuellen. Am Fall 1754449 kalibriert -- siehe Modul-Docstring.
 pressing_gravity = -60.0
 
+lid_pressure_pa = 1500.0
+
 
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
     config, box, box_index = args
@@ -215,6 +217,7 @@ class PackagingSimulation:
         self.article_z = self.item.height / 1000
 
         self._aborted = False
+        self._lid_bottom_z: float | None = None
 
     def run(self) -> dict:
         boxes = self.config.boxes
@@ -434,6 +437,15 @@ class PackagingSimulation:
       <geom type="box" size="{half_x+cfg.wall_thickness:.6g} {half_t:.6g} {visual_height / 2:.6g}"
             pos="0 {-half_y - half_t:.6g} {visual_center_z:.6g}" contype="0" conaffinity="0" rgba="0.2 0.6 1.0 0.35"/>'''
 
+
+        gap = 0.001
+        lid = f'''
+      <body name="lid" mocap="true" pos="0 0 {floor_top + wall_height + 0.1:.6g}">
+        <geom name="lid_geom" type="box"
+              size="{half_x - gap:.6g} {half_y - gap:.6g} {half_t:.6g}"
+              {friction} rgba="0.9 0.55 0.2 0.45"/>
+      </body>'''
+
         # Ohne <statistic> rahmt MuJoCo die Kamera anhand der hohen (aber
         # unsichtbaren) Hilfswaende -- die Box waere dann ein Fleck am Rand.
         camera_extent = max(cfg.box_x, cfg.box_y, cfg.box_z)
@@ -453,6 +465,7 @@ class PackagingSimulation:
   </asset>
   <worldbody>
     {walls}
+    {lid}
     {articles}
   </worldbody>
 </mujoco>'''
@@ -511,8 +524,8 @@ class PackagingSimulation:
         print("Simuliere physikalischen Fall...")
 
         if cfg.use_gui:
-            import mujoco.viewer
-            self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            from mujoco import viewer as mj_viewer
+            self._viewer = mj_viewer.launch_passive(self.model, self.data)
             self._next_frame_time = time.perf_counter()
 
         # Phase 1: freier Fall, bis alle Artikel zur Ruhe gekommen sind
@@ -537,6 +550,29 @@ class PackagingSimulation:
         self._step_until_settled()
         self.model.opt.gravity[2] = -9.81
 
+        # Phase 3: Deckel senkt sich stoisch, bis er Widerstand findet
+        lid_body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "lid")
+        mocap_id = self.model.body_mocapid[lid_body]
+        half_t = cfg.wall_thickness / 2
+
+        lid_z = self._current_max_z() + half_t + 0.002
+        self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
+
+        for _ in range(cfg.max_simulation_steps):
+            #speed
+            lid_z -= 0.03 * cfg.fixed_time_step
+            self.data.mocap_pos[mocap_id, 2] = lid_z
+            self._step()
+
+            # cfrc_ext wird nicht in jedem Fall von mj_step gefuellt
+            mujoco.mj_rnePostConstraint(self.model, self.data)
+            #end when force is too high
+            if abs(self.data.cfrc_ext[lid_body, 5]) > 10.0:
+                break
+
+        self._lid_bottom_z = lid_z - half_t
+
+
     def _current_max_z(self) -> float:
         """Oberkante der Schuettung ueber die transformierten Vertices aller
         Kollisionsteile."""
@@ -550,24 +586,21 @@ class PackagingSimulation:
         return max_z
 
     def _step_until_settled(self) -> None:
-        """Laeuft, bis sich die Fuellhoehe nicht mehr nennenswert aendert."""
+        """Laeuft, bis sich nichts mehr nennenswert bewegt."""
         cfg = self.config
-        last_height: float | None = None
 
         for step in range(1, cfg.max_simulation_steps + 1):
             self._step()
+            if self._aborted:
+                return
 
-            if step % cfg.settle_check_interval != 0:
+            if step % 20 or step < cfg.min_simulation_steps:
                 continue
 
-            height = self._current_max_z()
-            height_converged = (
-                last_height is not None
-                and abs(height - last_height) < cfg.height_change_mm / 1000
-            )
-            last_height = height
-
-            if step >= cfg.min_simulation_steps and height_converged:
+            # Ruhe statt Hoehenkonstanz: billiger (ein numpy-Aufruf statt
+            # einer Schleife ueber alle Geoms) und eindeutiger, weil ein
+            # einzelner huepfender Artikel die Oberkante dominieren wuerde.
+            if np.abs(self.data.qvel).max() < 0.2:
                 break
 
     def _settle_items_with_impulse(
@@ -599,6 +632,7 @@ class PackagingSimulation:
 
     def _evaluate(self) -> dict:
         cfg = self.config
+        
 
         filling_height = self._current_max_z() - cfg.wall_thickness
 
@@ -626,6 +660,11 @@ class PackagingSimulation:
 
         # Auslastung der GESAMTEN Box (Ranking: hoch = wenig verschenkter Platz)
         box_utilization = total_article_volume / box_volume if box_volume > 0 else 0
+
+        if self._lid_bottom_z is not None:
+            filling_height = self._lid_bottom_z - cfg.wall_thickness
+        else:
+            filling_height = self._current_max_z() - cfg.wall_thickness
 
         results = {
             "filling_height_m": filling_height,
