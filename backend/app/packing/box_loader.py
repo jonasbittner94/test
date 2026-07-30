@@ -3,6 +3,7 @@
 import csv
 from pathlib import Path
 from app.packing.optimizer import Box
+from app.packing.models import Item
 
 
 def _safe_float(value):
@@ -50,6 +51,7 @@ def _load_bulk_boxes(
     total_article_volume: float,
     stability: str,
     estimated_packing_density: float | None,
+    item: Item | None = None,
 ) -> list[Box]:
     """
     Schuettgut-Pfad: robuste Vorfilterung.
@@ -83,6 +85,9 @@ def _load_bulk_boxes(
         box = _box_from_row(row)
 
         if box.volume <= 0:
+            continue
+
+        if (min(box.length, box.width, box.height) < 2*min(item.length, item.width, item.height) if item else 0):
             continue
 
         required_density = total_article_volume / box.volume
@@ -154,7 +159,7 @@ def load_boxes_from_csv(
 
     if bulk:
         boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
-        limit = 20
+        limit = 10
     else:
         boxes = _load_pattern_boxes(rows, total_article_volume, stability)
         limit = 200

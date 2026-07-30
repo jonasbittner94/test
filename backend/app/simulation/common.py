@@ -46,7 +46,7 @@ class SimulationConfig:
     height_change_mm: float = 0.2
 
     # Sofortiger Abbruch, wenn die Fuellhoehe nach dem Einfuellen zu hoch ist
-    early_validation_factor: float = 1.6
+    early_validation_factor: float = 2
 
     # Verdichtung durch Ruetteln der Artikel
     settle_duration: float = 1

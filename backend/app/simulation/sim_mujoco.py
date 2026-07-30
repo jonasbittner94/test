@@ -109,50 +109,59 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
 
     return result
 
+def _reference_box_density(args: tuple[SimulationConfig, Box, int]) -> float | None:
+    """Eine Referenzbox inkl. adaptiver Nachvergroesserung. Liefert die
+    Packdichte oder None, wenn auch die groesste Variante nicht passt."""
+    config, box, index = args
+    current_box = box
+
+    for attempt in range(4):
+        single_config = replace(
+            config,
+            boxes=[current_box],
+            runs_per_box=1,
+            use_gui=False,
+            parallel_simulations=False,
+            random_seed=(
+                None
+                if config.random_seed is None
+                else config.random_seed + 10_000 + index
+            ),
+        )
+
+        result = run_single_box_simulation((single_config, current_box, index))
+
+        if result["fits_in_box"]:
+            return result["packing_density_percent"] / 100.0
+
+        scale = 1.25
+        current_box = Box(
+            name=f"{box.name}_scaled_{attempt + 1}",
+            length=math.ceil(current_box.length * scale),
+            width=math.ceil(current_box.width * scale),
+            height=math.ceil(current_box.height * scale),
+            lhm_capacity=1,
+        )
+
+    return None
+
 
 def estimate_bulk_packing_density(config: SimulationConfig) -> float:
     """Simuliert dynamisch abgeleitete Referenzboxen und liefert die
     geschaetzte Packdichte im Bereich [0, 1]."""
     reference_boxes = _build_dynamic_reference_boxes(config)
-    densities: list[float] = []
+    args = [(config, box, index) for index, box in enumerate(reference_boxes)]
 
-    for index, box in enumerate(reference_boxes):
-        current_box = box
+    with ProcessPoolExecutor(
+        max_workers=min(len(args), os.cpu_count() or 1)
+    ) as executor:
+        densities = [
+            density
+            for density in executor.map(_reference_box_density, args)
+            if density is not None
+        ]
 
-        # adaptive Nachvergroesserung, falls die Referenzbox zu klein ist
-        for attempt in range(4):
-            single_config = replace(
-                config,
-                boxes=[current_box],
-                runs_per_box=1,
-                use_gui=False,
-                parallel_simulations=False,
-                random_seed=(
-                    None
-                    if config.random_seed is None
-                    else config.random_seed + 10_000 + index
-                ),
-            )
-
-            result = run_single_box_simulation((single_config, current_box, index))
-
-            if result["fits_in_box"]:
-                densities.append(result["packing_density_percent"] / 100.0)
-                break
-
-            scale = 1.25
-            current_box = Box(
-                name=f"{box.name}_scaled_{attempt + 1}",
-                length=math.ceil(current_box.length * scale),
-                width=math.ceil(current_box.width * scale),
-                height=math.ceil(current_box.height * scale),
-                lhm_capacity=1,
-            )
-
-    if not densities:
-        return 0.35
-
-    return max(densities)
+    return max(densities) if densities else 0.35
 
 
 def _euler_to_quaternion_wxyz(roll: float, pitch: float, yaw: float) -> tuple:
@@ -555,7 +564,36 @@ class PackagingSimulation:
         mocap_id = self.model.body_mocapid[lid_body]
         half_t = cfg.wall_thickness / 2
 
-        lid_z = self._current_max_z() + half_t + 0.002
+        # Phase 3a: einmal bis auf Boxhoehe abstreifen. Die leicht ueberstehenden
+        # Artikel werden dabei geruettelt und rutschen in Luecken, statt beim
+        # spaeteren Absetzen nur zusammengedrueckt zu werden.
+        lid_speed = 0.03     # m/s, Absetzen in Phase 3
+        sweep_speed = 0.01   # m/s, Abstreifen in Phase 3a (bewusst langsamer)
+
+
+        rim_z = cfg.wall_thickness + cfg.box_z + half_t
+        sweep_z = self._current_max_z() + half_t + 0.0001
+
+        if sweep_z > rim_z:
+            self.data.mocap_pos[mocap_id] = (0.0, 0.0, sweep_z)
+            sweep_steps = int((sweep_z - rim_z) / (sweep_speed * cfg.fixed_time_step))
+
+
+            for _ in range(sweep_steps):
+                sweep_z -= sweep_speed * cfg.fixed_time_step
+                self.data.mocap_pos[mocap_id, 2] = sweep_z
+                self._step()
+                if self._aborted:
+                    break
+
+            self._settle_items_with_impulse(
+                duration=cfg.settle_duration,
+                force_scale=0.1,
+                frequency=cfg.settle_frequency,
+            )
+            self.data.mocap_pos[mocap_id, 2] = rim_z + lid_speed*2  # Deckel wieder hoch
+
+        lid_z = self._current_max_z() + half_t + 0.0001
         self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
 
         for _ in range(cfg.max_simulation_steps):
@@ -563,6 +601,8 @@ class PackagingSimulation:
             lid_z -= 0.03 * cfg.fixed_time_step
             self.data.mocap_pos[mocap_id, 2] = lid_z
             self._step()
+            if self._aborted:
+                break
 
             # cfrc_ext wird nicht in jedem Fall von mj_step gefuellt
             mujoco.mj_rnePostConstraint(self.model, self.data)
@@ -584,6 +624,34 @@ class PackagingSimulation:
             )
             max_z = max(max_z, top)
         return max_z
+
+    def _count_escaped_articles(self, tolerance: float = 0.002) -> int:
+        """Zaehlt Artikel, deren Kollisionsteile seitlich oder nach unten aus
+        der Box herausragen. Nach oben wird nicht geprueft -- das ist die
+        Fuellhoehe, kein Fehler."""
+        cfg = self.config
+        half_x, half_y = cfg.box_x / 2, cfg.box_y / 2
+        escaped: set[int] = set()
+
+        for geom_id, vertices in self._article_geom_vertices:
+            rotation = self.data.geom_xmat[geom_id].reshape(3, 3)
+            pos = self.data.geom_xpos[geom_id]
+
+            x = vertices @ rotation[0, :] + pos[0]
+            y = vertices @ rotation[1, :] + pos[1]
+            z = vertices @ rotation[2, :] + pos[2]
+
+            if (
+                x.max() > half_x + tolerance
+                or x.min() < -half_x - tolerance
+                or y.max() > half_y + tolerance
+                or y.min() < -half_y - tolerance
+                or z.min() < cfg.wall_thickness - tolerance
+            ):
+                # ueber die Body-ID, sonst zaehlt ein VHACD-Artikel mehrfach
+                escaped.add(int(self.model.geom_bodyid[geom_id]))
+
+        return len(escaped)
 
     def _step_until_settled(self) -> None:
         """Laeuft, bis sich nichts mehr nennenswert bewegt."""
@@ -675,6 +743,7 @@ class PackagingSimulation:
             "packing_density_percent": packing_density * 100,
             "fits_in_box": fits_in_box,
             "fill_rate_percent": box_utilization * 100,
+            "escaped_articles": self._count_escaped_articles(),
         }
 
         self._print_results(results)
