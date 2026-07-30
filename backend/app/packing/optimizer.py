@@ -14,7 +14,7 @@ class PackingOptimizer:
     boxes: List[Box]
     pattern: Optional[Dict] = None
     mesh_volume: Optional[float] = None
-    fill_residual: bool = True
+    fill_remaining_space: bool = True
 
 
     # numerische toleranz gegen rundungsfehler beim vergleichen von massen
@@ -24,8 +24,8 @@ class PackingOptimizer:
     # Geometrie- & Orientierungs-Helfer
     #
 
-    def _fill_residual(self, region, orientations):
-        """packt den restraum neben dem hauptraster mit so vielen artikeln wie moeglich."""
+    def _fill_remaining_space(self, region, orientations):
+        """Packt den Restraum neben dem Hauptraster mit so vielen artikeln wie möglich."""
         x0, y0, z0, rest_x, rest_y, rest_z = region
 
         best_fit = None
@@ -269,7 +269,7 @@ class PackingOptimizer:
             residual_positions = []
             residual_count = 0
 
-            if self.fill_residual:
+            if self.fill_remaining_space:
 
                 regions = [
                     (used_x, 0.0, 0.0, box.length - used_x, box.width, box.height),
@@ -278,7 +278,7 @@ class PackingOptimizer:
                 ]
                 
                 for region in regions:
-                    region_positions, region_count = self._fill_residual(region, unique_orientations)
+                    region_positions, region_count = self._fill_remaining_space(region, unique_orientations)
                     residual_positions += region_positions
                     residual_count += region_count
 

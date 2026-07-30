@@ -8,13 +8,6 @@ from app.packing.box_loader import load_boxes_from_csv
 from app.core.config import BOXES_CSV
 from app.geometry import compute_scaled_volume_mm3, resolve_converted_stl
 
-
-class OverlapRequest(BaseModel):
-    x: float = 0
-    y: float = 0
-    z: float = 0
-
-
 class PositionRequest(BaseModel):
     x: float
     y: float
@@ -41,24 +34,19 @@ class PatternElementRequest(BaseModel):
 
 
 class PatternRequest(BaseModel):
-    length: float
-    width: float
-    height: float
     count: int
     elements: List[PatternElementRequest]
 
 
 class PackingRequest(BaseModel):
-    item_length: float
     item_width: float
     item_height: float
     file_url:str
     quantity: int
     scaledLength: float
     pattern: Optional[PatternRequest] = None
-    mesh_volume:Optional[float] = None
     stability:str
-    fill_residual: bool = True
+    fill_remaining_space: bool = True
 
 
 router = APIRouter()
@@ -112,7 +100,7 @@ def get_top_20_packing_results(data: PackingRequest):
         boxes=boxes,
         pattern=pattern,
         mesh_volume=effective_volume,
-        fill_residual=data.fill_residual,
+        fill_remaining_space=data.fill_remaining_space,
 
     )
 
