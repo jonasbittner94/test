@@ -54,7 +54,7 @@ async def convert_stp_to_stl(file: UploadFile = File(...)):
 
         return {
             "file_id": f"{file_id}.stl",
-            "file_url": f"http://localhost:8000/files/{file_id}.stl",
+            "file_url": f"/files/{file_id}.stl",
             "stl_file": str(output_path).replace("\\", "/"),
             "item": item,
         }
@@ -85,7 +85,7 @@ async def upload_stl(file: UploadFile = File(...)):
 
         return {
             "file_id": f"{file_id}.stl",
-            "file_url": f"http://localhost:8000/files/{file_id}.stl",
+            "file_url": f"/files/{file_id}.stl",
             "stl_file": str(output_path).replace("\\", "/"),
             "item": item,
         }

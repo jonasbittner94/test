@@ -1,5 +1,6 @@
 """Erstellung der Pfade für die CAD-Dateien und Verpackungen"""
 
+import os
 from pathlib import Path
 
 # backend
@@ -12,3 +13,9 @@ CONVERTED_DIR = STORAGE_DIR / "converted"
 
 # Standard-CSV mit den verfuegbaren Faltschachteln/Verpackungen
 BOXES_CSV = DATA_DIR / "meine_datei.csv"
+
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]

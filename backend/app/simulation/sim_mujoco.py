@@ -102,7 +102,6 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
         "length": box.length,
         "width": box.width,
         "height": box.height,
-        "lhm_capacity": box.lhm_capacity * config.item_quantity,
     }
 
     return result
@@ -357,15 +356,13 @@ class PackagingSimulation:
         return highest_spawn_z + self.article_z + 0.05
 
     def _collision_part_vertices(self) -> list[np.ndarray]:
-        """Vertices der konvexen Kollisionsteile in Metern."""
         cfg = self.config
         scale = np.array(cfg.mesh_scale)
 
         if cfg.collision_file:
-            parts = _parse_obj_groups(Path(cfg.collision_file))
+            data = np.load(cfg.collision_file)
+            parts = [data[k] for k in sorted(data.files)]
         else:
-            # ohne VHACD: konvexe Huelle der STL (so behandelt PyBullet
-            # dynamische GEOM_MESH-Koerper ebenfalls)
             mesh = trimesh.load(str(cfg.stl_file), force="mesh")
             parts = [np.asarray(mesh.convex_hull.vertices)]
 
@@ -680,13 +677,9 @@ class PackagingSimulation:
             else settled_height
         )
 
-        # Echtes Mesh-Volumen (mm^3 -> m^3) statt Bounding-Box-Quader
         if cfg.mesh_volume > 0:
-            scale_x = cfg.mesh_scale[0] / 0.001
-            scale_y = cfg.mesh_scale[1] / 0.001
-            scale_z = cfg.mesh_scale[2] / 0.001
-            volume_scale = scale_x * scale_y * scale_z
-            single_article_volume = cfg.mesh_volume * volume_scale * 1e-9
+        # mesh_volume ist bereits die skalierte Ist-Groesse (mm^3) -> nur Einheiten
+            single_article_volume = cfg.mesh_volume * 1e-9
         else:
             single_article_volume = self.article_x * self.article_y * self.article_z
 

@@ -5,6 +5,8 @@ import Form from "react-bootstrap/Form";
 import Collapse from "react-bootstrap/Collapse";
 import { useState, ChangeEvent } from "react";
 import { uploadStepFile, uploadStlFile } from "@/lib/api/uploads";
+import { apiUrl } from "@/lib/api/clients";
+
 
 type ItemObject = {
   length: number;
@@ -93,8 +95,7 @@ export default function FormPage() {
 
       setUploadedItem(uploadResult.item);
       setUploadedStlFile(uploadResult.stl_file);
-      localStorage.setItem("convertedStlUrl", uploadResult.file_url);
-
+      localStorage.setItem("convertedStlUrl", apiUrl(uploadResult.file_url));
       setCadFileUploaded(true);
     } catch (error) {
       setCadFileUploaded(false);
@@ -144,7 +145,7 @@ export default function FormPage() {
 
       localStorage.setItem("simulationRequest", JSON.stringify(payload));
 
-      const response = await fetch("http://localhost:8000/simulation/run", {
+      const response = await fetch(apiUrl("/simulation/run"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

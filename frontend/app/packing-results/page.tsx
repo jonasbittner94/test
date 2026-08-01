@@ -79,6 +79,7 @@ function BoxPreview({
 
   return (
     <Canvas
+      frameloop="demand"
       shadows
       camera={{
         position: [length * 1.5, height * 1.2, width * 1.5],

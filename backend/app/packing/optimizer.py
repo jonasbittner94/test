@@ -4,7 +4,6 @@ from typing import List, Optional, Dict
 from dataclasses import dataclass, field
 from math import floor
 from app.packing.models import Item, Box
-from app.packing.lhm import get_lhm_capacity
 
 
 @dataclass
@@ -460,7 +459,7 @@ class PackingOptimizer:
         for box in self.boxes:
             result = self._pack_pattern(box) if self.pattern else None
             if result:
-                result["lhm_capacity"] = get_lhm_capacity(box)
+                result["lhm_capacity"] = box.lhm_capacity
                 candidates.append(result)
 
         candidates.sort(

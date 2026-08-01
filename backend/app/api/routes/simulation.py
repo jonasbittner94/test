@@ -10,7 +10,7 @@ from app.simulation.sim_mujoco import (
 )
 from app.packing.models import Box
 from app.packing.box_loader import load_boxes_from_csv
-from app.packing.lhm import get_lhm_capacity
+from app.packing.lhm import resolve_lhm_capacity
 from app.core.config import BOXES_CSV
 from dataclasses import replace
 from app.geometry import (
@@ -23,7 +23,6 @@ class RequestedBox(BaseModel):
     length: int
     width: int
     height: int
-    lhm_capacity: int | None = None
 
 class SingleBoxSimulationRequest(BaseModel):
     config: SimulationConfig
@@ -73,12 +72,6 @@ def run_simulation(config: SimulationConfig):
 
     print("mögliche Verpackungen", boxes)
 
-    for box in boxes:
-        lhm_capacity = get_lhm_capacity(box)
-        box.lhm_capacity = int(lhm_capacity)
-
-
-
     config = replace(
         config,
         boxes=boxes,
@@ -116,12 +109,11 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
         length=requested_box.length,
         width=requested_box.width,
         height=requested_box.height,
-        lhm_capacity=requested_box.lhm_capacity or 0,
+        lhm_capacity=0,
     )
-
-
-    if not selected_box.lhm_capacity:
-        selected_box.lhm_capacity = int(get_lhm_capacity(selected_box))
+    # Immer neu ableiten: der Client kennt nur articles_per_lhm (Boxen x Menge)
+    # und darf diesen abgeleiteten Wert nicht als Eingabe zurueckspielen.
+    selected_box.lhm_capacity = resolve_lhm_capacity(selected_box)
 
     single_box_config = replace(
         config,

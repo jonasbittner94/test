@@ -1,8 +1,9 @@
-'''Geometrie-Helfer: Volumenberechnung aus einem STL-Mesh.'''
+'''Geometrie-Helfer: konvexe Zerlegung und Volumenberechnung aus einem STL-Mesh.'''
 
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import trimesh
 
 from app.core.config import CONVERTED_DIR
@@ -16,16 +17,16 @@ def resolve_converted_stl(file_url: str) -> Path:
     return path
 
 
-# Grobheit der VHACD-Zerlegung. Benchmark (60 Artikel, 400 Steps):
-#   konvexe Huelle 12.1s | 5 Teile 12.6s | 19 Teile (PyBullet-Defaults) 78.4s
-# -> diese Parameter liefern ~5 Teile: formtreue Konkavitaet zu praktisch
-#    denselben Step-Kosten wie eine einzelne konvexe Huelle.
 VHACD_PARAMS = {
+    # V-HACD 4 (vhacdx, ueber trimesh.convex_decomposition). Anders als bei
+    # pybullets V-HACD 2 steuert maxConvexHulls die Teilezahl direkt --
+    # frueher musste concavity/gamma indirekt darauf hintrimmen.
+    # Benchmark (60 Artikel, 400 Steps): konvexe Huelle 12.1s | 5 Teile 12.6s |
+    # 19 Teile 78.4s -> 5 Teile sind der Sweet Spot.
+    "maxConvexHulls": 5,
     "resolution": 300_000,
-    "concavity": 0.0015,
-    "gamma": 0.00075,
     "maxNumVerticesPerCH": 32,
-    "minVolumePerCH": 0.0002,
+    "minimumVolumePercentErrorAllowed": 1.0,
 }
 
 
@@ -36,50 +37,43 @@ def _vhacd_params_tag() -> str:
 
 
 def ensure_vhacd_collision_mesh(stl_path: str | Path) -> Path:
-    """Erzeugt (einmalig) eine konvexe Zerlegung (VHACD) der STL für die Physik.
+    """Erzeugt (einmalig) eine konvexe Zerlegung der STL für die Physik.
 
-    MuJoCo kollidiert ein Mesh-Geom immer als konvexe Hülle (PyBullet ebenso) --
-    konkave Artikel (Vertiefungen, Löcher, L-Formen) kollidieren damit falsch
-    und die Schüttung wird zu locker. Erst die Zerlegung in mehrere konvexe
-    Teilkörper macht die Kollision formtreu. sim_mujoco._parse_obj_groups legt
-    daraus je Teil ein eigenes Geom an.
+    MuJoCo kollidiert ein Mesh-Geom immer als konvexe Hülle -- konkave Artikel
+    (Vertiefungen, Löcher, L-Formen) kollidieren damit falsch und die Schüttung
+    wird zu locker. Erst die Zerlegung in mehrere konvexe Teilkörper macht die
+    Kollision formtreu. sim_mujoco._collision_part_vertices legt je Teil ein
+    eigenes Geom an.
 
-    ACHTUNG: pybullet wird hier NUR als VHACD-Werkzeug benutzt, nicht als
-    Physik-Engine -- gerechnet wird ausschließlich mit MuJoCo. Der Aufruf
-    passiert einmal pro STL beim Upload, nicht im Simulationslauf.
+    Gerechnet wird die Zerlegung von vhacdx (V-HACD 4) über
+    trimesh.convex_decomposition -- kein pybullet mehr nötig.
 
-    Das Ergebnis wird neben der STL gecacht (<name>.vhacd-<tag>.obj) und nur
-    neu berechnet, wenn die STL neuer ist oder VHACD_PARAMS geändert wurden.
+    Das Ergebnis wird als npz neben der STL gecacht
+    (<name>.vhacd-<tag>.npz) und nur neu berechnet, wenn die STL neuer ist
+    oder VHACD_PARAMS geändert wurden.
     """
     stl_path = Path(stl_path)
-    tag = _vhacd_params_tag()
-    obj_in = stl_path.with_suffix(".obj")
-    obj_out = stl_path.with_name(f"{stl_path.stem}.vhacd-{tag}.obj")
-    log_file = stl_path.with_name(f"{stl_path.stem}.vhacd-{tag}.log.txt")
+    cache = stl_path.with_name(f"{stl_path.stem}.vhacd-{_vhacd_params_tag()}.npz")
 
-    if obj_out.is_file() and obj_out.stat().st_mtime >= stl_path.stat().st_mtime:
-        return obj_out
+    if cache.is_file() and cache.stat().st_mtime >= stl_path.stat().st_mtime:
+        return cache
 
-    # VHACD liest nur Wavefront OBJ -> STL einmal konvertieren
     mesh = trimesh.load(str(stl_path), force="mesh")
-    mesh.export(str(obj_in))
+    parts = mesh.convex_decomposition(**VHACD_PARAMS)
+    if not parts:
+        raise RuntimeError(f"Konvexe Zerlegung fehlgeschlagen für {stl_path.name}")
 
-    import pybullet as p
-
-    client = p.connect(p.DIRECT)
-    try:
-        p.vhacd(str(obj_in), str(obj_out), str(log_file), **VHACD_PARAMS)
-    finally:
-        p.disconnect(client)
-
-    if not obj_out.is_file():
-        raise RuntimeError(f"VHACD-Zerlegung fehlgeschlagen für {stl_path.name}")
-
-    return obj_out
+    np.savez_compressed(
+        cache,
+        **{f"part{i:03d}": np.asarray(p.vertices) for i, p in enumerate(parts)},
+    )
+    return cache
 
 
 # Berechnung des Volumens der konvexen Hülle des Meshes (wie im Frontend).
-def compute_scaled_volume_mm3(stl_file: str | Path, scaled_length: float | None = None) -> float:
+def compute_scaled_volume_mm3(
+    stl_file: str | Path, scaled_length: float | None = None
+) -> float:
     """Volumen wie im Frontend (konvexe Hülle), in mm^3.
 
     Optional auf die skalierte Länge normiert (entspricht baseVolume * factor

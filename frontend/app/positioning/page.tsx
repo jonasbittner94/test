@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation";
 import { useGridPositions } from "./hooks/useGridPositions";
 import { getNumberParam } from "./utils/params";
 import Button from "@/components/ui/button";
+import { apiUrl } from "@/lib/api/clients";
+
 
 const GRID_SIZE = 2;
 const LAYERS = 2;
@@ -121,7 +123,7 @@ function RenderingContent() {
     const [itemLength, itemWidth, itemHeight] = boundingBox;
     const scaled_length =
       scaledLength && scaledLength > 0 ? scaledLength : itemLength;
-    const stability = localStorage.getItem("stability") ?? "beliebig";
+    const stability = localStorage.getItem("stability") ?? "Beliebig";
     const fillResidual = localStorage.getItem("fillResidual") !== "false";
 
     if (!itemQuantity || itemQuantity <= 0) {
@@ -139,7 +141,7 @@ function RenderingContent() {
     try {
       setLoadingPacking(true);
 
-      const response = await fetch("http://localhost:8000/packing/top20", {
+      const response = await fetch(apiUrl("/packing/top20"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

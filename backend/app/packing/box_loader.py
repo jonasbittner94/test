@@ -3,6 +3,7 @@
 import csv
 from pathlib import Path
 from app.packing.models import Box
+from app.packing.lhm import resolve_lhm_capacity
 
 
 def _safe_float(value):
@@ -15,19 +16,25 @@ def _safe_float(value):
 
 def _matches_stability(row, stability: str) -> bool:
     """true, wenn die box zur gewuenschten stabilitaet passt (oder egal ist)."""
-    if stability in ("", "beliebig"):
+    if stability in ("", "Beliebig"):
         return True
     return row.get("Stabilität", "") == stability
 
 
 def _box_from_row(row) -> Box:
-    return Box(
+    box = Box(
         name=row["Object Name"],
         length=float(row["length"]),
         width=float(row["width"]),
         height=float(row["height"]),
-        lhm_capacity=_safe_float(row["Amount per bin box (LHM C)"]),
+        lhm_capacity=0,
     )
+    # Einzige Stelle, an der die LHM-Kapazitaet bestimmt wird: SAP-Wert aus der
+    # CSV, sonst geometrischer Fallback. Alle Aufrufer lesen nur box.lhm_capacity.
+    box.lhm_capacity = resolve_lhm_capacity(
+        box, _safe_float(row["Amount per bin box (LHM C)"])
+    )
+    return box
 
 
 def _load_pattern_boxes(rows, total_article_volume: float, stability: str) -> list[Box]:

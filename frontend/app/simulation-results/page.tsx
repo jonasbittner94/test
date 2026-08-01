@@ -1,5 +1,6 @@
 "use client";
 
+import { apiUrl } from "@/lib/api/clients";
 import { useEffect, useMemo, useState } from "react";
 
 type SimulationBox = {
@@ -56,9 +57,7 @@ export default function PackingResultsPage() {
 
       const simulationRequest = JSON.parse(rawRequest);
 
-      const response = await fetch(
-        "http://localhost:8000/simulation/run-single-box",
-        {
+      const response = await fetch(apiUrl("/simulation/run-single-box"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

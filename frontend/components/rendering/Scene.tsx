@@ -38,6 +38,7 @@ export function Scene({
 }: SceneProps) {
   return (
     <Canvas
+      frameloop="demand"
       dpr={[1, 2]}
       camera={{ position: [200, 200, 300], fov: 50, near: 0.1, far: 5000 }}
       gl={{ toneMappingExposure: 0.8 }}
@@ -72,7 +73,6 @@ export function Scene({
             receiveShadow={receiveShadow}
             position={pos}
             scaled_length={scaled_length}
-            // boundingBox nur für den ersten Artikel berechnen
             onBoundingBoxChange={i === 0 ? onBoundingBoxChange : undefined}
             showLocalAxes={true}
             axesSize={40}

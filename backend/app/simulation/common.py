@@ -48,7 +48,7 @@ class SimulationConfig:
     settle_duration: float = 1
     settle_force_scale: float = 0.3
     settle_frequency: float = 10
-    fit_height_tolerance: float = 0.02
+    fit_height_tolerance: float = 0.005
     random_seed: Optional[int] = 42
     runs_per_box: int = 1
 
@@ -90,13 +90,7 @@ def _get_best_valid_results(simulation_results: list[dict]) -> list[dict]:
 
 def _get_single_article_volume_m3(config: SimulationConfig) -> float:
     if config.mesh_volume > 0:
-        volume_scale = (
-            config.mesh_scale[0]
-            * config.mesh_scale[1]
-            * config.mesh_scale[2]
-        ) / 0.001**3
-        return config.mesh_volume * volume_scale * 1e-9
-
+        return config.mesh_volume * 1e-9
     return (
         config.item.length / 1000
         * config.item.width / 1000
