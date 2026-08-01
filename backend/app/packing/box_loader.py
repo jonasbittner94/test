@@ -162,6 +162,5 @@ def load_boxes_from_csv(
         limit = 200
 
     boxes = _unique_boxes_by_dimensions(boxes)
-
     boxes.sort(key=lambda box: box.volume)
     return boxes[:limit]
