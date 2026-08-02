@@ -219,18 +219,6 @@ class PackagingSimulation:
         # (geom_id, vertices) je Kollisionsteil, fuer die Fuellhoehe
         self._article_geom_vertices: list[tuple[int, np.ndarray]] = []
 
-        self._shaker_body_id: int | None = None
-        self._shaker_joint_x_qpos_adr: int | None = None
-        self._shaker_joint_y_qpos_adr: int | None = None
-        self._shaker_joint_x_qvel_adr: int | None = None
-        self._shaker_joint_y_qvel_adr: int | None = None
-
-        self._scraper_joint_x_qpos_adr: int | None = None
-        self._scraper_joint_z_qpos_adr: int | None = None
-        self._scraper_joint_x_qvel_adr: int | None = None
-        self._scraper_joint_z_qvel_adr: int | None = None
-
-
         # Artikelmasse von mm auf m
         self.article_x = self.item.length / 1000
         self.article_y = self.item.width / 1000
@@ -317,154 +305,59 @@ class PackagingSimulation:
             self._build_scene_xml(spawn_states)
         )
         self.data = mujoco.MjData(self.model)
-        self._collect_shaker_handles()
-        self._collect_scraper_handles()
         self._collect_article_handles()
         mujoco.mj_forward(self.model, self.data)
 
-    def _collect_scraper_handles(self) -> None:
-        joint_x_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_JOINT, "scraper_x"
-        )
-        joint_z_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_JOINT, "scraper_z"
-        )
 
-        self._scraper_joint_x_qpos_adr = self.model.jnt_qposadr[joint_x_id]
-        self._scraper_joint_z_qpos_adr = self.model.jnt_qposadr[joint_z_id]
-        self._scraper_joint_x_qvel_adr = self.model.jnt_dofadr[joint_x_id]
-        self._scraper_joint_z_qvel_adr = self.model.jnt_dofadr[joint_z_id]
+    def _count_escaped_articles(self) -> int:
+        """Zaehlt Artikel, die die Verpackung seitlich oder nach unten verlassen haben.
 
-    def _scrape_top_layer(self) -> None:
-        if (
-            self._scraper_joint_x_qpos_adr is None
-            or self._scraper_joint_z_qpos_adr is None
-            or self._scraper_joint_x_qvel_adr is None
-            or self._scraper_joint_z_qvel_adr is None
-        ):
-            return
+        Bei hohen Aufprallgeschwindigkeiten kann ein Artikel eine Wand innerhalb
+        eines Zeitschritts durchqueren, ohne dass ein Kontakt erkannt wird. Solche
+        Laeufe liefern eine zu geringe Fuellhoehe und sind nicht belastbar.
 
-        qx = self._scraper_joint_x_qpos_adr
-        qz = self._scraper_joint_z_qpos_adr
-        vx = self._scraper_joint_x_qvel_adr
-        vz = self._scraper_joint_z_qvel_adr
+        Gewertet wird der Schwerpunkt der Kollisionsteile: Einzelne herausragende
+        Vertices sind normale Kontaktdurchdringung und kein Fehler. Ein Herausragen
+        nach OBEN wird ebenfalls nicht gewertet -- das ist die Fuellhoehe.
+        """
+        cfg = self.config
+        half_x, half_y = cfg.box_x / 2, cfg.box_y / 2
+        floor_top = cfg.wall_thickness
 
-        dt = self.config.fixed_time_step
+        escaped = 0
 
-        scraper_start_z = self._get_spawn_wall_height() + 0.05
-        target_world_z = self.config.wall_thickness + self.config.box_z + 0.0005
-        target_rel_z = target_world_z - scraper_start_z
+        for body_id in self.article_body_ids:
+            geom_start = self.model.body_geomadr[body_id]
+            geom_count = self.model.body_geomnum[body_id]
 
-        # Neue Start-/Absenkposition: direkt ueber der linken Boxseite
-        entry_world_x = 0
-        scraper_base_x = -(self.config.box_x + 0.05)
-        entry_rel_x = entry_world_x - scraper_base_x
+            weighted_sum = np.zeros(3)
+            vertex_total = 0
 
-        # Sweep von der linken Boxkante bis deutlich ueber die rechte hinaus
-        exit_world_x = self.config.box_x / 2 + 0.05
-        exit_rel_x = exit_world_x - scraper_base_x
+            for geom_id in range(geom_start, geom_start + geom_count):
+                if self.model.geom_contype[geom_id] == 0:
+                    continue  # Visual-Geom zaehlt nicht
+                mesh_id = self.model.geom_dataid[geom_id]
+                start = self.model.mesh_vertadr[mesh_id]
+                count = self.model.mesh_vertnum[mesh_id]
+                vertices = self.model.mesh_vert[start:start + count]
+                rotation = self.data.geom_xmat[geom_id].reshape(3, 3)
 
-        # 1) Parkposition
-        self.data.qpos[qx] = 0.0
-        self.data.qpos[qz] = 0.0
-        self.data.qvel[vx] = 0.0
-        self.data.qvel[vz] = 0.0
-        mujoco.mj_forward(self.model, self.data)
+                centre = vertices.mean(axis=0) @ rotation.T + self.data.geom_xpos[geom_id]
+                weighted_sum += centre * count
+                vertex_total += count
 
-        # 2) Erst horizontal ueber die Box fahren
-        move_duration = 0.15
-        move_steps = max(1, int(move_duration / dt))
-        for step in range(move_steps):
-            if self._aborted:
-                return
+            if vertex_total == 0:
+                continue
 
-            alpha = (step + 1) / move_steps
-            x = entry_rel_x * alpha
-            vx_curr = entry_rel_x / move_duration
+            centre = weighted_sum / vertex_total
+            if (
+                not -half_x <= centre[0] <= half_x
+                or not -half_y <= centre[1] <= half_y
+                or centre[2] < floor_top
+            ):
+                escaped += 1
 
-            self.data.qpos[qx] = x
-            self.data.qpos[qz] = 0.0
-            self.data.qvel[vx] = vx_curr
-            self.data.qvel[vz] = 0.0
-            mujoco.mj_forward(self.model, self.data)
-            self._step()
-
-        # 3) Dann direkt ueber der Box absenken
-        lower_duration = 0.15
-        lower_steps = max(1, int(lower_duration / dt))
-        for step in range(lower_steps):
-            if self._aborted:
-                return
-
-            alpha = (step + 1) / lower_steps
-            z = target_rel_z * alpha
-            vz_curr = target_rel_z / lower_duration
-
-            self.data.qpos[qx] = entry_rel_x
-            self.data.qpos[qz] = z
-            self.data.qvel[vx] = 0.0
-            self.data.qvel[vz] = vz_curr
-            mujoco.mj_forward(self.model, self.data)
-            self._step()
-
-        # 4) Seitlich nach rechts abziehen
-        sweep_duration = 0.35
-        sweep_steps = max(1, int(sweep_duration / dt))
-        sweep_distance = exit_rel_x - entry_rel_x
-
-        for step in range(sweep_steps):
-            if self._aborted:
-                return
-
-            alpha = (step + 1) / sweep_steps
-            x = entry_rel_x + sweep_distance * alpha
-            vx_curr = sweep_distance / sweep_duration
-
-            self.data.qpos[qx] = x
-            self.data.qpos[qz] = target_rel_z
-            self.data.qvel[vx] = vx_curr
-            self.data.qvel[vz] = 0.0
-            mujoco.mj_forward(self.model, self.data)
-            self._step()
-
-        # 5) Optional wieder anheben
-        raise_duration = 0.12
-        raise_steps = max(1, int(raise_duration / dt))
-        for step in range(raise_steps):
-            if self._aborted:
-                return
-
-            alpha = (step + 1) / raise_steps
-            z = target_rel_z * (1.0 - alpha)
-            vz_curr = -target_rel_z / raise_duration
-
-            self.data.qpos[qx] = exit_rel_x
-            self.data.qpos[qz] = z
-            self.data.qvel[vx] = 0.0
-            self.data.qvel[vz] = vz_curr
-            mujoco.mj_forward(self.model, self.data)
-            self._step()
-
-        # 6) Reset
-        self.data.qpos[qx] = 0.0
-        self.data.qpos[qz] = 0.0
-        self.data.qvel[vx] = 0.0
-        self.data.qvel[vz] = 0.0
-        mujoco.mj_forward(self.model, self.data)
-
-
-    def _collect_shaker_handles(self) -> None:
-        joint_x_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_JOINT, "shaker_x"
-        )
-        joint_y_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_JOINT, "shaker_y"
-        )
-
-        self._shaker_joint_x_qpos_adr = self.model.jnt_qposadr[joint_x_id]
-        self._shaker_joint_y_qpos_adr = self.model.jnt_qposadr[joint_y_id]
-        self._shaker_joint_x_qvel_adr = self.model.jnt_dofadr[joint_x_id]
-        self._shaker_joint_y_qvel_adr = self.model.jnt_dofadr[joint_y_id]
+        return escaped
 
     def _plan_spawn_positions(self) -> list[dict]:
         """Wuerfelt Positionen und Rotationen VOR dem Modellbau aus.
@@ -490,8 +383,10 @@ class PackagingSimulation:
             layer = i // per_layer
             cx, cy = cells[i % per_layer]
 
-            jitter_x = random.uniform(-0.25 * step_x, 0.25 * step_x)
-            jitter_y = random.uniform(-0.25 * step_y, 0.25 * step_y)
+            jitter_limit_x = max(0.0, (step_x - cx) / 2)
+            jitter_limit_y = max(0.0, (step_y - cy) / 2)
+            jitter_x = random.uniform(-jitter_limit_x, jitter_limit_x)
+            jitter_y = random.uniform(-jitter_limit_y, jitter_limit_y)
             x_pos = max(-ux, min(ux, -ux + (cx + 0.5) * step_x + jitter_x))
             y_pos = max(-uy, min(uy, -uy + (cy + 0.5) * step_y + jitter_y))
             z_pos = cfg.box_z + 0.03 + layer * (self.article_z + 0.005)
@@ -513,8 +408,8 @@ class PackagingSimulation:
         cell = max(self.article_x, self.article_y) + gap
         margin = 0.5 * max(self.article_x, self.article_y)
 
-        ux = max(cell / 2, cfg.box_x / 2 - margin)
-        uy = max(cell / 2, cfg.box_y / 2 - margin)
+        ux = max(0.0, cfg.box_x / 2 - margin)
+        uy = max(0.0, cfg.box_y / 2 - margin)
         cols_x = max(1, int((2 * ux) // cell))
         cols_y = max(1, int((2 * uy) // cell))
         return cols_x, cols_y, ux, uy
@@ -632,24 +527,24 @@ class PackagingSimulation:
         camera_extent = max(cfg.box_x, cfg.box_y, cfg.box_z)
 
         return f'''
-<mujoco model="packing">
-  <option timestep="{cfg.fixed_time_step:.8g}" gravity="0 0 -9.81"
-          iterations="{cfg.solver_iterations}" integrator="implicitfast"/>
-  <compiler angle="radian"/>
-  <statistic center="0 0 {cfg.box_z / 2:.6g}" extent="{camera_extent:.6g}"/>
-  <visual>
-    <global azimuth="135" elevation="-20"/>
-  </visual>
-  <asset>
-    <mesh name="visual" file="{stl_path}" scale="{scale_str}"/>
-    {mesh_assets}
-  </asset>
-  <worldbody>
-    {walls}
-    {lid}
-    {articles}
-  </worldbody>
-</mujoco>'''
+            <mujoco model="packing">
+            <option timestep="{cfg.fixed_time_step:.8g}" gravity="0 0 -9.81"
+                    iterations="{cfg.solver_iterations}" integrator="implicitfast"/>
+            <compiler angle="radian"/>
+            <statistic center="0 0 {cfg.box_z / 2:.6g}" extent="{camera_extent:.6g}"/>
+            <visual>
+                <global azimuth="135" elevation="-20"/>
+            </visual>
+            <asset>
+                <mesh name="visual" file="{stl_path}" scale="{scale_str}"/>
+                {mesh_assets}
+            </asset>
+            <worldbody>
+                {walls}
+                {lid}
+                {articles}
+            </worldbody>
+            </mujoco>'''
 
     def _collect_article_handles(self) -> None:
         self.article_body_ids = []
@@ -720,8 +615,18 @@ class PackagingSimulation:
             if filling_height > cfg.box_z * cfg.early_validation_factor:
                 return
 
-        # Phase 2: verdichten. Erhoehte Schwerkraft + horizontales Ruetteln
-        # entspricht dem Aufstossen der Kiste und erzeugt die reale Dichte.
+                # Deckel und Kennwerte einmal vorbereiten
+        lid_body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "lid")
+        mocap_id = self.model.body_mocapid[lid_body]
+        half_t = cfg.wall_thickness / 2
+        rim_z = cfg.wall_thickness + cfg.box_z + half_t
+
+        # Phase 2: Deckel auflegen, dann verdichten.
+        # Der Deckel sitzt auf Randhoehe -- steht die Schuettung hoeher, legt er
+        # sich auf sie auf. So kann waehrend des Ruettelns nichts herausspringen.
+        lid_z = max(rim_z, self._current_max_z() + half_t + 0.0001)
+        self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
+
         self.model.opt.gravity[2] = pressing_gravity
         self._settle_items_with_impulse(
             duration=cfg.settle_duration,
@@ -730,14 +635,9 @@ class PackagingSimulation:
         )
         if self._aborted:
             return
-        
-        self._scrape_top_layer()
-        if self._aborted:
-            return
 
         self._step_until_settled()
         self.model.opt.gravity[2] = -9.81
-
         # Phase 3: Deckel senkt sich stoisch, bis er Widerstand findet
         lid_body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "lid")
         mocap_id = self.model.body_mocapid[lid_body]
@@ -826,83 +726,34 @@ class PackagingSimulation:
                 break
 
     def _settle_items_with_impulse(
-        self,
-        duration: float,
-        force_scale: float,
-        frequency: float,
-    ) -> None:
-        """Verdichtet ueber 5 schnelle Hin-und-her-Bewegungen der Kiste.
+            self,
+            duration: float,
+            force_scale: float,
+            frequency: float,
+        ) -> None:
+            """Verdichtet die Schuettung durch eine umlaufende Horizontalkraft.
 
-        Keine Sinusbewegung, sondern lineares Hin und Her entlang der X-Achse.
-        Die Artikel werden ausschliesslich ueber Kontaktkraefte angeregt.
-        """
-        if isinstance(duration, (tuple, list)):
-            if not duration:
-                return
-            duration = float(duration[0])
+            Die Kraft greift direkt an jedem Artikel an und bildet das Ruetteln der
+            Verpackung ab, ohne den Behaelter selbst bewegen zu muessen. Waehrend
+            dieser Phase liegt der Deckel auf, sodass keine Artikel herausspringen.
+            """
+            steps = max(1, int(duration / self.config.fixed_time_step))
 
-        if isinstance(force_scale, (tuple, list)):
-            if not force_scale:
-                return
-            force_scale = float(force_scale[0])
+            for step in range(steps):
+                t = step * self.config.fixed_time_step
+                force_x = force_scale * math.sin(2 * math.pi * frequency * t)
+                force_y = force_scale * math.cos(2 * math.pi * frequency * t)
 
-        if isinstance(frequency, (tuple, list)):
-            if not frequency:
-                return
-            frequency = float(frequency[0])
+                self.data.xfrc_applied[:] = 0
+                for body_id in self.article_body_ids:
+                    self.data.xfrc_applied[body_id, 0] = force_x
+                    self.data.xfrc_applied[body_id, 1] = force_y
 
-        if frequency <= 0:
-            return
+                self._step()
+                if self._aborted:
+                    break
 
-        if (
-            self._shaker_joint_x_qpos_adr is None
-            or self._shaker_joint_y_qpos_adr is None
-            or self._shaker_joint_x_qvel_adr is None
-            or self._shaker_joint_y_qvel_adr is None
-        ):
-            return
-
-        qx = self._shaker_joint_x_qpos_adr
-        qy = self._shaker_joint_y_qpos_adr
-        vx = self._shaker_joint_x_qvel_adr
-        vy = self._shaker_joint_y_qvel_adr
-
-        amplitude = max(0.001, min(0.004, force_scale * 0.00002))
-
-        cycles = 5
-        cycle_duration = 1.0 / frequency
-        effective_duration = cycles * cycle_duration
-        steps = max(1, int(effective_duration / self.config.fixed_time_step))
-
-        for step in range(steps):
-            if self._aborted:
-                break
-
-            t = step * self.config.fixed_time_step
-            cycle_phase = (t % cycle_duration) / cycle_duration
-
-            if cycle_phase < 0.5:
-                half_phase = cycle_phase / 0.5
-                x = -amplitude + 2.0 * amplitude * half_phase
-                xd = (2.0 * amplitude) / (cycle_duration * 0.5)
-            else:
-                half_phase = (cycle_phase - 0.5) / 0.5
-                x = amplitude - 2.0 * amplitude * half_phase
-                xd = -(2.0 * amplitude) / (cycle_duration * 0.5)
-
-            self.data.qpos[qx] = x
-            self.data.qpos[qy] = 0.0
-            self.data.qvel[vx] = xd
-            self.data.qvel[vy] = 0.0
-
-            mujoco.mj_forward(self.model, self.data)
-            self._step()
-
-        self.data.qpos[qx] = 0.0
-        self.data.qpos[qy] = 0.0
-        self.data.qvel[vx] = 0.0
-        self.data.qvel[vy] = 0.0
-        mujoco.mj_forward(self.model, self.data)
+            self.data.xfrc_applied[:] = 0
     #
     # Auswertung (identisch zu sim.py)
     #
@@ -948,6 +799,9 @@ class PackagingSimulation:
             "fill_rate_percent": box_utilization * 100,
         }
 
+        results["escaped_articles"] = self._count_escaped_articles()
+
+
         self._print_results(results)
 
         return results
@@ -972,6 +826,10 @@ class PackagingSimulation:
             f"Erreichte Fülldichte: "
             f"{results['packing_density_percent']:.2f} %"
         )
+        print(
+                    f"Artikel die Box verlassen"
+                    f"{results['escaped_articles']:.2f} %"
+                )
 
     #
     # GUI

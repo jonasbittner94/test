@@ -24,7 +24,6 @@ class SimulationConfig:
     mesh_volume: float = 0.0
     stl_file: str = "ausgabe.stl"
     stability: str | None = None
-    # VHACD-Zerlegung der STL, in Teilkoerper
     collision_file: Optional[str] = None
 
     item_mass: float = 0.01
@@ -48,7 +47,7 @@ class SimulationConfig:
     settle_duration: float = 1
     settle_force_scale: float = 0.3
     settle_frequency: float = 10
-    fit_height_tolerance: float = 0.005
+    fit_height_tolerance: float = 0
     random_seed: Optional[int] = 42
     runs_per_box: int = 1
 
@@ -77,7 +76,7 @@ def _get_best_valid_results(simulation_results: list[dict]) -> list[dict]:
         result
         for result in simulation_results
         if result.get("fits_in_box", False)
-    ]
+        and result.get("escaped_articles", 0)== 0    ]
 
     # Beste Box = hoechster Fuellgrad = kleinste Box, in die alle Artikel passen
     valid_results.sort(
