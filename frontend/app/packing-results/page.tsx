@@ -243,8 +243,8 @@ export default function PackingResultsPage() {
             background: "#ffffff",
           }}
         >
-          <option value="size">Verpackungsgröße (kleinste zuerst)</option>
           <option value="lhm">LHM-Kapazität (höchste zuerst)</option>
+          <option value="size">Füllgrad (höchste zuerst)</option>
         </select>
       </div>
 

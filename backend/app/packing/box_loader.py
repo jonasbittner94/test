@@ -3,15 +3,7 @@
 import csv
 from pathlib import Path
 from app.packing.models import Box
-from app.packing.lhm import resolve_lhm_capacity
-
-
-def _safe_float(value):
-    """float aus der csv lesen; leere oder kaputte zellen werden zu 0.0."""
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+from app.packing.lhm import get_lhm_capacity
 
 
 def _matches_stability(row, stability: str) -> bool:
@@ -29,11 +21,10 @@ def _box_from_row(row) -> Box:
         height=float(row["height"]),
         lhm_capacity=0,
     )
-    # Einzige Stelle, an der die LHM-Kapazitaet bestimmt wird: SAP-Wert aus der
-    # CSV, sonst geometrischer Fallback. Alle Aufrufer lesen nur box.lhm_capacity.
-    box.lhm_capacity = resolve_lhm_capacity(
-        box, _safe_float(row["Amount per bin box (LHM C)"])
-    )
+    # Einzige Stelle, an der die LHM-Kapazitaet bestimmt wird: immer geometrisch
+    # berechnet, der SAP-Wert aus der CSV wird bewusst ignoriert.
+    # Alle Aufrufer lesen nur box.lhm_capacity.
+    box.lhm_capacity = get_lhm_capacity(box)
     return box
 
 
@@ -71,7 +62,7 @@ def _load_bulk_boxes(
     # Fallback/Clamp verhindert, dass eine schlechte Simulation die Vorfilterung
     # komplett leer macht.
     if estimated_packing_density is None or estimated_packing_density <= 0:
-        packing_density = 0.35
+        packing_density = 0.4
     else:
         packing_density = _clamp(estimated_packing_density, 0.40, 0.80)
 

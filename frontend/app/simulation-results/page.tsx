@@ -29,7 +29,7 @@ type SortMode = "filling" | "lhm" | "fillrate";
 
 export default function PackingResultsPage() {
   const [data, setData] = useState<SimulationResponse | null>(null);
-  const [sortMode, setSortMode] = useState<SortMode>("filling");
+  const [sortMode, setSortMode] = useState<SortMode>("fillrate");
   const [rerunBoxName, setRerunBoxName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,9 +163,10 @@ export default function PackingResultsPage() {
             background: "#ffffff",
           }}
         >
+          <option value="fillrate">Füllgrad (höchste zuerst)</option>
           <option value="filling">relative Füllhöhe (höchste zuerst)</option>
           <option value="lhm">Artikel pro LHM (höchste zuerst)</option>
-          <option value="fillrate">Füllgrad (höchste zuerst)</option>
+
         </select>
       </div>
 

@@ -28,6 +28,7 @@ import math
 import os
 import random
 import time
+import zlib
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -54,18 +55,37 @@ joint_damping = 0.08
 pressing_gravity = -60.0
 
 
+def _box_seed_offset(box: Box) -> int:
+    """Seed-Versatz aus den Boxmassen statt aus der Position im Kandidatenfeld.
+
+    Wird der Versatz aus dem Listenindex gebildet, haengt das Ergebnis einer
+    Verpackung davon ab, welche ANDEREN Verpackungen im selben Lauf sind: ein
+    anderer Stabilitaetsfilter oder ein erweiterter Katalog verschiebt die
+    Position und damit die Schuettung. Die Abmessungen sind dagegen eine
+    Eigenschaft der Verpackung selbst.
+
+    crc32 statt hash(), weil hash() fuer str je Prozess randomisiert ist und
+    damit ausgerechnet die Reproduzierbarkeit zerstoeren wuerde.
+    """
+    key = f"{box.length:.3f}x{box.width:.3f}x{box.height:.3f}".encode()
+    return zlib.crc32(key) % 1_000_000
+
+
 def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
+    # box_index bleibt in der Signatur, weil executor.map 3-Tupel uebergibt;
+    # fuer den Seed wird er bewusst nicht mehr verwendet.
     config, box, box_index = args
 
     n_runs = max(1, config.runs_per_box)
     runs: list[dict] = []
 
     #jede Simulation mit einem anderen, aber reproduzierbaren Random-Seed
+    seed_offset = _box_seed_offset(box)
     for run_index in range(n_runs):
         random_seed = (
             None
             if config.random_seed is None
-            else config.random_seed + box_index * 1000 + run_index
+            else config.random_seed + seed_offset + run_index
         )
 
         single_box_config = replace(config, boxes=[box], random_seed=random_seed)
@@ -88,12 +108,10 @@ def run_single_box_simulation(args: tuple[SimulationConfig, Box, int]) -> dict:
     result["aborted"] = any(run["aborted"] for run in runs)
 
 
-    # Effektiver Seed des ERSTEN Laufs -> erlaubt exakte Reproduktion im GUI
-    result["random_seed"] = (
-        None
-        if config.random_seed is None
-        else config.random_seed + box_index * 1000
-    )
+    # BASIS-Seed des Laufs (ohne Box-Offset). Das GUI-Replay schickt ihn
+    # unveraendert zurueck und diese Funktion addiert den maessebasierten
+    # Offset erneut -> dadurch entsteht exakt der Seed von Lauf 0.
+    result["random_seed"] = config.random_seed
 
     result["articles_per_lhm"] = config.item_quantity * box.lhm_capacity
 
@@ -647,19 +665,17 @@ class PackagingSimulation:
         # Artikel werden dabei geruettelt und rutschen in Luecken, statt beim
         # spaeteren Absetzen nur zusammengedrueckt zu werden.
         lid_speed = 0.03     # m/s, Absetzen in Phase 3
-        sweep_speed = 0.01   # m/s, Abstreifen in Phase 3a (bewusst langsamer)
-
 
         rim_z = cfg.wall_thickness + cfg.box_z + half_t
         sweep_z = self._current_max_z() + half_t + 0.0001
 
         if sweep_z > rim_z:
             self.data.mocap_pos[mocap_id] = (0.0, 0.0, sweep_z)
-            sweep_steps = int((sweep_z - rim_z) / (sweep_speed * cfg.fixed_time_step))
+            sweep_steps = int((sweep_z - rim_z) / (lid_speed * cfg.fixed_time_step))
 
 
             for _ in range(sweep_steps):
-                sweep_z -= sweep_speed * cfg.fixed_time_step
+                sweep_z -= lid_speed * cfg.fixed_time_step
                 self.data.mocap_pos[mocap_id, 2] = sweep_z
                 self._step()
                 if self._aborted:

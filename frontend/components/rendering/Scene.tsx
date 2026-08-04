@@ -47,7 +47,6 @@ export function Scene({
         <GizmoViewcube />
       </GizmoHelper>
 
-      <axesHelper args={[100]} />
       <ambientLight intensity={0.7} />
       <hemisphereLight args={["#ffffff", "#404040", 0.6]} />
       <directionalLight position={[150, 250, 200]} intensity={1.4} castShadow />
@@ -74,7 +73,7 @@ export function Scene({
             position={pos}
             scaled_length={scaled_length}
             onBoundingBoxChange={i === 0 ? onBoundingBoxChange : undefined}
-            showLocalAxes={true}
+            showLocalAxes={false}
             axesSize={40}
           />
         ))}

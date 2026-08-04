@@ -28,9 +28,3 @@ def get_lhm_capacity(box: Box) -> int:
         best = max(best, count)
 
     return best
-
-def resolve_lhm_capacity(box: Box, csv_value: float | None = None) -> int:
-    """Boxen pro LHM C. Wenn Wert aus SAP vorhanden ist diesen nehmen, sonst selbst berechnen."""
-    if csv_value and csv_value > 0:
-        return int(csv_value)
-    return get_lhm_capacity(box)

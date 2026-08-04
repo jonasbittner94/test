@@ -1,0 +1,406 @@
+================================================================================
+PACKAGINGOPTIMIZER — ANWENDUNGSKONTEXT
+================================================================================
+Stand: 03.08.2026 (gegen den Code in C:\Users\Jonas\Downloads\test verifiziert;
+Arbeitsstand mit nicht committeten Aenderungen ueber Commit 6e2d3be5)
+
+Prototypische Webanwendung (Bachelorarbeit, Phoenix Contact) zur Auswahl der
+optimalen Faltschachtel-Verpackung fuer eine definierte Menge n gleichartiger
+Leiterplattenklemmen. Zwei getrennte Berechnungspfade:
+
+  1. PMA (Packmusterartikel):  geordnetes Packen nach einem vom Nutzer
+     definierten Muster -> deterministischer Raster-/Greedy-Algorithmus.
+  2. SGA (Schuettgutartikel):  ungeordnetes Einschuetten -> physikalische
+     Starrkoerpersimulation mit MuJoCo 3.11.
+
+Ergebnis ist jeweils eine bewertete Rangliste von Verpackungen aus einem
+festen Katalog (CSV), inkl. Kennzahlen wie Fuellgrad und Artikel je
+Ladehilfsmittel (LHM). Die endgueltige Auswahl trifft der Nutzer.
+
+
+================================================================================
+1. TECHNIK-STACK UND START
+================================================================================
+
+Backend   Python 3.12, FastAPI, MuJoCo 3.11 (Physik), trimesh + vhacdx
+          (Geometrie), CadQuery (STEP->STL-Konvertierung).
+          Start AUS DEM ORDNER backend\ (sonst brechen die app...-Imports):
+              cd backend
+              .venv\Scripts\activate
+              uvicorn app.api.main:app --port 8000
+          venv: backend\.venv
+
+Frontend  Next.js 16 (App Router), React, Tailwind v4, Three.js
+          (@react-three/fiber + drei) fuer alle 3D-Darstellungen.
+              cd frontend
+              npm run dev        -> http://localhost:3000
+          Die API-URL http://localhost:8000 ist fest verdrahtet
+          (lib/api/uploads.ts, app/rendering/page.tsx).
+
+CORS      main.py erlaubt FRONTEND_ORIGINS (Default http://localhost:3000,
+          per Env-Variable ueberschreibbar).
+
+Pfade     backend/app/core/config.py:
+          - DATA_DIR      = backend/data          (dort: meine_datei.csv)
+          - STORAGE_DIR   = backend/storage
+          - UPLOAD_DIR    = storage/uploads       (rohe .stp)
+          - CONVERTED_DIR = storage/converted     (.stl + VHACD-Cache)
+          CONVERTED_DIR ist unter /files als statische Route gemountet.
+
+requirements.txt-Hinweise: mujoco==3.11.0 ist enthalten; pybullet ist NICHT
+mehr enthalten (VHACD kommt von vhacdx ueber trimesh). ACHTUNG: Zeile 34 ist
+kaputt ("vhacdx==0.0.10pydantic==2.13.4" — fehlender Zeilenumbruch zwischen
+zwei Paketen), pip install -r schlaegt so fehl.
+
+
+================================================================================
+2. VERZEICHNISSTRUKTUR (relevante Dateien)
+================================================================================
+
+backend/app/
+  api/main.py                 FastAPI-App, CORS, /files-Mount, Router-Einbindung
+  api/routes/uploads.py       POST /convert-stp-to-stl, POST /upload-stl
+  api/routes/packing.py       POST /packing/top20            (PMA-Pfad)
+  api/routes/simulation.py    POST /simulation/run           (SGA-Pfad)
+                              POST /simulation/run-single-box (GUI-Replay)
+  core/config.py              Pfade, BOXES_CSV
+  geometry.py                 STL aufloesen, konvexe Huelle (Volumen),
+                              VHACD-Zerlegung + Cache
+  packing/models.py           Item (l/w/h, 6 Orientierungen), Box (+volume)
+  packing/box_loader.py       CSV laden, Stabilitaetsfilter, Vorfilterung
+  packing/lhm.py              LHM-Kapazitaet (Boxen je LHM C)
+  packing/optimizer.py        PackingOptimizer (kompletter PMA-Algorithmus)
+  simulation/common.py        SimulationConfig, Ranking, Referenzboxen
+  simulation/sim_mujoco.py    PackagingSimulation (kompletter SGA-Algorithmus)
+  services/converterStpStl/converter.py   STEP->STL via CadQuery
+
+backend/data/meine_datei.csv  Verpackungskatalog (siehe Abschnitt 4)
+
+frontend/app/
+  page.tsx                    Startseite (Datei-Upload)
+  formular/page.tsx           Eingabeformular (Menge, Schuettgut ja/nein,
+                              Stabilitaetsklasse, Skalierung, Restraum)
+  positioning/page.tsx        3D-Editor fuer das Packmuster (nur PMA)
+  packing-results/page.tsx    Rangliste + 3D-Vorschau der Packmuster
+  simulation-results/page.tsx Rangliste der Simulationsergebnisse + Replay
+
+
+================================================================================
+3. DATENFLUSS (Ende-zu-Ende)
+================================================================================
+
+Schritt 1 — Upload (Startseite):
+  Nutzer laedt .stp oder .stl hoch.
+  - .stp -> POST /convert-stp-to-stl: CadQuery konvertiert zu STL,
+    Ablage unter storage/converted/<uuid>.stl.
+  - .stl -> POST /upload-stl: direkte Ablage.
+  Antwort enthaelt file_id, file_url (/files/<uuid>.stl), stl_file und die
+  AABB-Masse des Meshes (length/width/height in mm) via trimesh.bounds.
+
+Schritt 2 — Formular (formular/page.tsx):
+  Eingaben: Artikelmenge n, Checkbox "Schuettgut", Checkbox "skalierbar" +
+  Ziel-Laenge (scaled_length), Dropdown Stabilitaetsklasse
+  (Beliebig / 1E / 1B), Checkbox "Restraum fuellen" (fillResidual).
+  Werte landen in localStorage (itemQuantity, bulkGoods, scaled_length,
+  stability, fillResidual).
+  - Schuettgut angehakt  -> Simulationsrequest wird direkt gebaut
+    (localStorage "simulationRequest") und es geht zu simulation-results.
+  - sonst               -> Weiter zur Positionierungsseite (PMA).
+
+Schritt 3a — PMA: Packmuster definieren (positioning/page.tsx):
+  Three.js-Szene mit 2x2x2 = 8 Artikelkopien (GRID_SIZE=2, LAYERS=2).
+  Slider steuern die LUECKE zwischen den Bounding-Boxes je Achse
+  (spacingX -> x, spacingY -> z, layerGap -> y); 0 = buendig, negativ =
+  bewusste Ueberlappung/Verschachtelung. Zusaetzlich koennen einzelne
+  Artikel in 90-Grad-Schritten um x/y/z gedreht werden.
+  "Verpackung suchen" schickt POST /packing/top20 mit: item_width/height,
+  file_url, quantity, scaledLength, pattern (8 Elemente mit index, position,
+  rotation, size), stability, fill_residual.
+
+Schritt 3b — SGA: direkt zu Schritt 4.
+
+Schritt 4 — Ergebnis:
+  - PMA: packing-results zeigt die Rangliste mit 3D-Vorschau jeder Box
+    (Positionen + Rotationen aus dem Backend werden nachgerendert).
+  - SGA: simulation-results zeigt die Rangliste (sortierbar nach Fuellhoehe,
+    Artikel/LHM, Fuellgrad) und bietet je Ergebnis "Simulation ansehen":
+    POST /simulation/run-single-box mit dem gespeicherten random_seed ->
+    Backend oeffnet ein lokales MuJoCo-Viewer-Fenster (use_gui=True).
+
+
+================================================================================
+4. VERPACKUNGSKATALOG UND VORFILTERUNG (box_loader.py)
+================================================================================
+
+Quelle: backend/data/meine_datei.csv — 1343 Zeilen mit Spalten u.a.
+"Object Name", length, width, height (Innenmasse mm), "Stabilität"
+(Werte: keine=585, 1E=617, 1B=141), "Amount per bin box (LHM C)".
+
+Ablauf load_boxes_from_csv(csv, quantity, bulk, mesh_volume, stability, dichte):
+  1. total_article_volume = mesh_volume * quantity
+  2. Stabilitaetsfilter _matches_stability: "" und "Beliebig" lassen ALLES
+     durch, sonst exakter Stringvergleich mit der CSV-Spalte.
+     (Das Frontend bietet nur Beliebig/1E/1B an — die Klasse "keine" ist
+     ueber die Oberflaeche nicht waehlbar.)
+  3a. PMA-Pfad (bulk=False): alle Boxen mit volume >= total_article_volume.
+      Limit nach Sortierung: 200.
+  3b. SGA-Pfad (bulk=True): geschaetzte Packdichte (aus der Vorsimulation,
+      s.u.) wird auf [0.40, 0.80] geklemmt (Fallback 0.40, wenn keine
+      Schaetzung — 03.08.2026 von 0.35 angehoben; Achtung: der Fallback IN
+      estimate_bulk_packing_density liegt weiterhin bei 0.35).
+      required_volume = total_article_volume / dichte.
+      Boxen, die das schaffen, kommen in fitting_boxes (Score: knappe
+      Ueberdimensionierung zuerst); wenn KEINE passt, werden stattdessen
+      die am wenigsten "ueberfuellten" als Fallback geliefert.
+      Limit: 10.
+  4. Deduplizierung nach Abmessungen (L/W-Reihenfolge egal), dann
+     aufsteigend nach Innenvolumen sortiert, Limit anwenden.
+
+LHM-Kapazitaet (lhm.py): Boxen je Ladehilfsmittel LHM C.
+  Wird immer selbst gerechnet, der CSV-Wert "Amount per bin box (LHM C)"
+  wird bewusst ignoriert: beste 90-Grad-Orientierung der Box in einem
+  LHM-Innenraum von 570 x 370 x 190 mm (floor-Division je Achse, keine
+  Mischorientierung).
+  Kennzahl im Ergebnis: articles_per_lhm = n * lhm_capacity.
+
+
+================================================================================
+5. PMA-PFAD: PACKMUSTER-ALGORITHMUS (optimizer.py)
+================================================================================
+
+Grundidee: Das vom Nutzer im 3D-Editor definierte Muster wird auf ein
+Raster reduziert; die Rasterzelle (nicht die Bounding-Box) ist der
+Platzbedarf eines Artikels. Vollstaendig deterministisch, kein Zufall.
+
+Schritte je Box:
+  1. _normalized_elements: die 8 Muster-Elemente werden (nach Anwendung der
+     90-Grad-Rotationen auf ihre Masse) in den Ursprung verschoben.
+  2. _pattern_step je Achse: kleinster Abstand zweier Elementpositionen =
+     Schrittweite s_x/s_y/s_z des Rasters (Fallback: volle Kantenlaenge).
+     Bei Verschachtelung ist die Schrittweite KLEINER als der Artikel.
+  3. effective_article_volume = min(Huellvolumen, s_x*s_y*s_z) — damit wird
+     auch die Box-Vorfilterung verschachtelungsgerecht.
+  4. _find_best_orientation: alle 6 Achsen-Orientierungen des Artikels
+     (Item.orientations, rotation_key wie "zyx") werden geprueft:
+     Hauptraster-Kapazitaet count_x*count_y*count_z aus Boxmass, Artikelmass
+     und Schrittweite; optional Restraumfuellung (fill_residual): drei
+     Restquader neben/ueber dem Hauptraster werden mit der jeweils besten
+     Einzel-Orientierung dicht aufgefuellt.
+     Score = (-Ueberkapazitaet, -belegtes Volumen) -> die Orientierung
+     gewinnt, die n mit dem wenigsten verschenkten Platz unterbringt.
+     Boxen mit total_capacity < n scheiden aus.
+  5. _place_articles: Greedy-Platzierung an Extreme Points (Start (0,0,0),
+     nach jeder Platzierung entstehen 3 neue Punkte; Abarbeitung sortiert
+     nach x, dann z, dann y). Kollisionspruefung ueber die Schrittweiten
+     (_fits_overlap). Jede Position erhaelt Rotation + Index aus dem
+     Muster-Lookup (Rasterzelle modulo Mustergroesse).
+  6. Ergebnis je Box: capacity, fill_rate = mesh_volume*n / Boxvolumen,
+     Positionsliste (fuer die 3D-Vorschau), article_dims, lhm_capacity.
+
+Ranking (find_top_boxes): AUFSTEIGEND nach Box-Innenvolumen, limit=50
+(der Routenname "top20" ist historisch). Laufzeit: ~1-2 s fuer 200
+Kandidaten — NFA "unter 30 s" klar erfuellt.
+
+
+================================================================================
+6. SGA-PFAD: SCHUETTGUT-SIMULATION (sim_mujoco.py)
+================================================================================
+
+6.1 Vorbereitung (routes/simulation.py, POST /simulation/run)
+  - mesh_volume = Volumen der KONVEXEN HUELLE des STL in mm^3, skaliert auf
+    die Ziel-Laenge (compute_scaled_volume_mm3).
+  - VHACD-Zerlegung (geometry.py): vhacdx via trimesh.convex_decomposition,
+    maxConvexHulls=5, resolution=300000. Noetig, weil MuJoCo Mesh-Geoms
+    stets als konvexe Huelle kollidiert — erst die Zerlegung macht konkave
+    Klemmen formtreu. Ergebnis wird als .npz neben der STL gecacht
+    (Cache-Key enthaelt einen Parameter-Fingerprint).
+  - Dichteschaetzung estimate_bulk_packing_density: drei dynamisch
+    dimensionierte Referenzboxen (ref_small/medium/large, Grundflaechen
+    12x8/18x12/28x20 cm, Hoehe aus Volumen/0.30 +15%) werden parallel
+    simuliert; passt eine Box nicht, wird sie bis zu 4x um Faktor 1.25
+    vergroessert. Geliefert wird das MAXIMUM der gemessenen Dichten
+    (Fallback 0.35). Diese Schaetzung steuert die Box-Vorfilterung.
+  - Danach: Kandidaten laden (max. 10, s. Abschnitt 4) und simulieren.
+
+6.2 Simulationsaufbau (je Box, run_single_box_simulation)
+  Szene wird als MJCF-XML-String gebaut (_build_scene_xml):
+  - Physik: timestep 0.002 s, Gravitation -9.81, Newton-Solver mit
+    iterations=30, Integrator implicitfast, condim=6,
+    friction="0.2 0.01 0.01" (Gleit/Torsion/Roll — gleich fuer Artikel,
+    Boden, Waende; MuJoCo kombiniert per Maximum), joint_damping=0.08,
+    Artikelmasse 10 g gleichmaessig auf die VHACD-Teile verteilt.
+  - Jeder Artikel: ein Body mit Free-Joint, 5 Kollisions-Geoms (VHACD-
+    Teile) + 1 unsichtbares Visual-Geom (Original-STL).
+  - Box: Boden + 4 Kollisionswaende (unsichtbar, hoeher als der hoechste
+    Spawn) + 4 halbtransparente Visualwaende in echter Boxhoehe.
+  - Deckel: mocap-Body (kinematisch gefuehrte Platte).
+  (Hinweis: safety_wall_gap/safety_half_t in Z.475-477 sind deklariert,
+  aber ungenutzt — toter Code einer frueheren Sicherheitswand.)
+
+6.3 Zufall und Reproduzierbarkeit
+  - SimulationConfig.random_seed Default 42 (Frontend setzt nichts).
+  - Je Box: seed_offset = crc32("LxWxH" der Box) % 1_000_000 — der Versatz
+    haengt nur von den Abmessungen ab, NICHT von der Position im
+    Kandidatenfeld (Filter-/Katalogaenderungen verschieben nichts).
+  - Effektiver Seed = 42 + offset + run_index; runs_per_box Default 1
+    (gilt auch produktiv — die vorgesehene Mittelung findet im Regelbetrieb
+    nie statt).
+  - Der Seed wuerfelt NUR die Startaufstellung (random.seed auf Pythons
+    globalem RNG): Reihenfolge der Rasterzellen (shuffle), Positions-Jitter,
+    3 Euler-Winkel +-18 Grad je Artikel. Die Physik selbst ist
+    deterministisch.
+  - Spawn: Raster ueber die Grundflaeche (Zellgroesse = groesste
+    Artikelkante + 5 mm), volle Lagen stapeln nach oben, Start 30 mm ueber
+    der Box.
+  - BEKANNTER BUG (Jitter): jitter_limit = (step - Zellindex)/2 vergleicht
+    Meter mit einem ganzzahligen Index — ab Index 1 ist das Limit 0, d.h.
+    der Jitter wirkt fast nirgends.
+
+6.4 Simulationsphasen (_simulate)
+  Phase 1  Fallen lassen; _step_until_settled laeuft, bis max|qvel| < 0.2
+           (alle 20 Schritte geprueft, min 100 / max 1000 Schritte).
+           Early-Abort ohne GUI: Fuellhoehe > 2 * Boxhoehe -> Abbruch.
+  Phase 2  Deckel auf die Schuettung legen, Gravitation auf -20 (Ersatz
+           fuers "Aufstossen" beim Befuellen — DIE kalibrierte Groesse;
+           03.08.2026 von -60 auf -20 geaendert, s. 6.7),
+           1 s umlaufende Horizontalkraft (0.3 N, 10 Hz) an jedem Artikel,
+           dann ausruhen, Gravitation zurueck auf -9.81.
+  Phase 3a "Abstreifen": steht die Schuettung ueber dem Rand, faehrt der
+           Deckel mit 0.03 m/s bis auf Randhoehe, dazu sanftes Ruetteln
+           (0.1 N); ueberstehende Artikel rutschen in Luecken. Deckel hoch.
+           (Bis 03.08.2026 lief das Abstreifen mit eigener, langsamerer
+           Geschwindigkeit sweep_speed = 0.01 m/s; die Variable wurde
+           entfernt, Abstreifen und Absetzen nutzen jetzt beide lid_speed.)
+  Phase 3  Absetzen: Deckel senkt sich mit 0.03 m/s, bis die vertikale
+           Kontaktkraft |cfrc_ext[lid,5]| > 10 N. Die DECKELUNTERKANTE ist
+           dann die massgebliche Fuellhoehe (filling_height).
+
+6.5 Auswertung (_evaluate + run_single_box_simulation)
+  - filling_height_mm         Deckelunterkante minus Bodendicke
+  - relative_filling_height   filling_height / Boxhoehe
+  - packing_density_percent   Artikelvolumen / (Grundflaeche*settled_height)
+                              — Dichte der Schuettung IN SICH (fuer die
+                              Dichteschaetzung), Bezug: Hoehe VOR Deckel
+  - fill_rate_percent         Artikelvolumen / Boxvolumen (Ranking-Groesse)
+  - fits_in_box               _evaluate prueft settled_height, aber
+                              run_single_box_simulation UEBERSCHREIBT mit
+                              mean(filling_height) <= Boxhoehe
+                              (fit_height_tolerance=0). Fuer Nachmessungen
+                              IMMER run_single_box_simulation nutzen!
+  - escaped_articles          Artikel, deren Schwerpunkt ausserhalb der
+                              Grundflaeche oder unter dem Boden liegt
+  - articles_per_lhm, box{...}, random_seed (= BASIS-Seed, also 42; der
+    Box-Offset wird beim Replay erneut aus den Boxmassen abgeleitet)
+  Ranking (_get_best_valid_results): nur fits_in_box UND escaped==0,
+  absteigend nach fill_rate_percent.
+
+6.6 GUI-Replay (POST /simulation/run-single-box)
+  Simuliert genau EINE Box mit use_gui=True im lokalen MuJoCo-Viewer,
+  runs_per_box=1, Seed aus dem Request. Das Ergebnis meldet den BASIS-Seed;
+  run_single_box_simulation addiert den crc32-Offset der Box beim Replay
+  erneut und trifft damit exakt Lauf 0.
+  (Behoben am 02.08.2026. Vorher wurde der bereits effektive Seed gemeldet
+  und der Offset ein zweites Mal addiert -> das Replay zeigte eine andere
+  Schuettung als die angezeigten Kennzahlen. Nachgemessen an einem
+  20-Artikel-Fall: 31,27 mm im Replay gegen 34,27 mm im Originallauf.)
+
+6.7 Kalibrierung (Kurzfassung, Stand 03.08.2026)
+  Verdichtungsgravitation (pressing_gravity) ist der einzige kalibrierte
+  Parameter. AKTUELLER CODEWERT: -20. Der Modul-Docstring ist NICHT
+  nachgezogen (nennt weiter die Reihe 30/60/200 g und -200 als Treffer);
+  vor der Abgabe angleichen.
+
+  Messreihe vom 03.08.2026 an drei realen Referenzfaellen (je ein Lauf,
+  Seed 42, Produktivpfad; Fuellhoehe in mm):
+
+    Artikel (Menge, Innenmasse)        real   ohne  -9.81  -20  -60  -100
+    MSTB 2,5/2-ST 1754449 (100, 85x96x60)  ~60  61.8  58.4  58.9 59.5  57.0
+    MSTB 2,5/4    1754481 ( 50, 85x96x60)  ~60  62.5  59.3  56.4 58.3  57.0
+    SMKDS 1/8-3,5 1751154 (100,176x103x34) ~34  36.9  33.6  33.4 33.0  33.1
+
+  WICHTIG — die Deckelphase maskiert die Wirkung der Gravitation: Misst man
+  die Schuetthoehe VOR Phase 3a, reagiert sie klar auf den Betrag (1754449:
+  72.8 mm bei -9.81 -> 61.6 mm bei -100); das Abstreifen drueckt danach
+  jede ueberstehende Schuettung auf Randhoehe (~60.1 bzw. ~34.4 mm,
+  gravitationsunabhaengig). Die flache "final"-Reihe oben ist also ein
+  Deckel-Effekt, kein Physik-Befund. Fuer Kalibrieraussagen zur
+  Verdichtungsgravitation deshalb immer die Hoehe vor der Deckelphase
+  heranziehen; das Deckelmass ist das Produktivmass (entspricht dem
+  Schliessen des realen Kartons) und trifft die Realwerte.
+
+  Ohne jede Verdichtungsphase (kein Ruetteln) liegt die lose Schuettung bei
+  86.0 / 89.2 / 59.4 mm; die finale Fuellhoehe ueberschreitet dann in ALLEN
+  drei Faellen die Innenhoehe -> alle drei real genutzten Verpackungen
+  wuerden faelschlich als ungeeignet ausgewiesen. Die im Docstring genannten
+  155 mm stammen vom Stand vor der Deckelphase und sind nicht mehr
+  reproduzierbar.
+
+  Details und alle Referenzfaelle: SIMULATIONSPFAD.txt bzw. Kapitel 4 der BA.
+
+
+================================================================================
+7. LAUFZEITEN (gemessen 02.08.2026)
+================================================================================
+
+PMA  (TF2, n=140, 200 Kandidaten):   ~1.4 s
+SGA  (TF1, n=100):  Dichteschaetzung ~133 s + Simulation von 10 Boxen
+     ~352 s  ->  gesamt ~8.1 min (parallelisiert ueber Boxen via
+     ProcessPoolExecutor; use_gui simuliert bewusst nur die erste Box).
+~99.5 % der Laufzeit steckt in mj_step; Solver-Abkuerzungen (weniger
+Iterationen, CG, condim 3) wurden gemessen und liefern falsche Physik.
+
+Laufzeit EINES Laufs, sequentiell gemessen (03.08.2026, ein Worker, kein
+Parallelbetrieb, i5-6600K 4 Kerne, VHACD gecacht; Mittel ueber die sechs
+Gravitationsstufen der Messreihe aus 6.7):
+     1754449 (n=100, 85x96x60)   99-123 s, Mittel 116 s
+     1754481 (n= 50, 85x96x60)    17- 25 s, Mittel  21 s
+     1751154 (n=100,176x103x34)  117-172 s, Mittel 145 s
+Die Laufzeit haengt dominant an der Artikelanzahl (n=50 rund 6x schneller
+als n=100), nicht am Betrag der Verdichtungsgravitation. Achtung: Zeiten aus
+parallel laufenden Messreihen sind durch CPU-Konkurrenz verzerrt und nicht
+vergleichbar (die Fuellhoehen dagegen sind bitidentisch).
+
+
+================================================================================
+8. BEKANNTE EIGENHEITEN / OFFENE PUNKTE
+================================================================================
+
+1. [BEHOBEN 02.08.2026] Replay-Seed war doppelt versetzt (6.6).
+2. Spawn-Jitter wirkungslos ausser in Randspalte/-reihe (6.3).
+3. requirements.txt Zeile 34 kaputt (vhacdx/pydantic verschmolzen).
+4. Stabilitaetsklasse "keine" ist im Frontend nicht waehlbar; "Beliebig"
+   laesst alle Klassen durch (auch "keine" und "1B").
+5. runs_per_box=1 produktiv: keine Mittelung, keine Streuungsangabe,
+   obwohl die Seed-Streuung an der Kapazitaetsgrenze +-1.5 mm betraegt.
+6. pressing_gravity: Code -20 (seit 03.08.2026) vs. Docstring -200 und
+   Kalibriertabelle 30/60/200 g — Docstring ist nicht nachgezogen (6.7).
+   Zu klaeren ist ausserdem, welcher Wert in der BA als Kalibrierstand
+   dokumentiert wird: das Evaluationskapitel nennt -60.
+7. safety_wall-Variablen sind toter Code (6.2).
+8. API-URL im Frontend hartkodiert (localhost:8000).
+9. lhm.py rechnet mit LHM-Innenhoehe 190 mm; andere Stellen der BA nennen
+   fuer das LHM C andere Masse. Seit die Kapazitaet immer selbst gerechnet
+   wird (kein CSV-Vorrang mehr), schlagen solche Abweichungen direkt auf
+   lhm_capacity und articles_per_lhm durch — Masse in lhm.py pruefen.
+10. PMA-Ranking sortiert aufsteigend nach Boxvolumen — die wirtschaftlich
+    beste Box (Artikel/LHM) steht dadurch nicht zwingend auf Rang 1.
+11. Die Deckelphase entkoppelt die finale Fuellhoehe weitgehend von der
+    Verdichtungsgravitation (6.7) — bei Parameterstudien immer zusaetzlich
+    die Schuetthoehe vor Phase 3a messen.
+
+--------------------------------------------------------------------------
+NICHT COMMITTETE AENDERUNGEN gegenueber Commit 6e2d3be5 ("Vor seed
+aenderung"), Stand 03.08.2026 — beim naechsten Commit pruefen:
+  sim_mujoco.py     pressing_gravity -60 -> -20; Seed-Offset jetzt crc32 der
+                    Boxmasse statt box_index*1000 (neu: _box_seed_offset);
+                    result["random_seed"] meldet den BASIS-Seed; sweep_speed
+                    entfernt (Abstreifen laeuft mit lid_speed 0.03 statt 0.01)
+  common.py         fixed_time_step 1/480 -> 0.002
+  box_loader.py     Fallback-Packdichte 0.35 -> 0.40
+  routes/simulation.py  nur Kommentare (Basis-Seed statt effektivem Seed)
+  Scene.tsx         axesHelper entfernt, showLocalAxes=false (nur Optik)
+--------------------------------------------------------------------------
+
+================================================================================
+ENDE
+================================================================================

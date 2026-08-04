@@ -33,7 +33,7 @@ class SimulationConfig:
     wall_thickness: float = 0.01
 
     # Performance / Genauigkeit
-    fixed_time_step: float = 1 / 480
+    fixed_time_step: float = 0.002
     solver_iterations: int = 30
 
     # max/min Steps gelten PRO Phase (Fall / Settling nach den Impulsen)

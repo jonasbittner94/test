@@ -10,7 +10,7 @@ from app.simulation.sim_mujoco import (
 )
 from app.packing.models import Box
 from app.packing.box_loader import load_boxes_from_csv
-from app.packing.lhm import resolve_lhm_capacity
+from app.packing.lhm import get_lhm_capacity
 from app.core.config import BOXES_CSV
 from dataclasses import replace
 from app.geometry import (
@@ -27,7 +27,7 @@ class RequestedBox(BaseModel):
 class SingleBoxSimulationRequest(BaseModel):
     config: SimulationConfig
     box: RequestedBox
-    # Effektiver Seed des urspruenglichen Laufs -> exakte Reproduktion im GUI.
+    # BASIS-Seed des urspruenglichen Laufs -> exakte Reproduktion im GUI.
     random_seed: int | None = None
 
 
@@ -113,7 +113,7 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
     )
     # Immer neu ableiten: der Client kennt nur articles_per_lhm (Boxen x Menge)
     # und darf diesen abgeleiteten Wert nicht als Eingabe zurueckspielen.
-    selected_box.lhm_capacity = resolve_lhm_capacity(selected_box)
+    selected_box.lhm_capacity = get_lhm_capacity(selected_box)
 
     single_box_config = replace(
         config,
@@ -124,8 +124,9 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
         parallel_simulations=False,
         use_gui=True,
         # Genau ein Lauf mit dem gespeicherten Seed -> reproduziert die Schuettung,
-        # die zu den Kennwerten auf der Result-Page gehoert. box_index ist hier 0,
-        # daher ist der effektive Seed exakt request.random_seed.
+        # die zu den Kennwerten auf der Result-Page gehoert. request.random_seed ist
+        # der BASIS-Seed; run_single_box_simulation addiert den aus den Boxmassen
+        # abgeleiteten Offset erneut und trifft damit exakt Lauf 0.
         runs_per_box=1,
         random_seed=(
             request.random_seed
