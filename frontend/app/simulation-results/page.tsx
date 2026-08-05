@@ -27,7 +27,7 @@ type SimulationResponse = {
 
 type SortMode = "filling" | "lhm" | "fillrate";
 
-export default function PackingResultsPage() {
+export default function SimResultsPage() {
   const [data, setData] = useState<SimulationResponse | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("fillrate");
   const [rerunBoxName, setRerunBoxName] = useState<string | null>(null);

@@ -235,7 +235,7 @@ class PackagingSimulation:
 
         self.article_body_ids: list[int] = []
         # (geom_id, vertices) je Kollisionsteil, fuer die Fuellhoehe
-        self._article_geom_vertices: list[tuple[int, np.ndarray]] = []
+        self._article_mesh_vertices: list[tuple[int, np.ndarray]] = []
 
         # Artikelmasse von mm auf m
         self.article_x = self.item.length / 1000
@@ -243,7 +243,7 @@ class PackagingSimulation:
         self.article_z = self.item.height / 1000
 
         self._aborted = False
-        self._lid_bottom_z: float | None = None
+        self._lid_pos: float | None = None
 
     def run(self) -> dict:
         boxes = self.config.boxes
@@ -320,7 +320,7 @@ class PackagingSimulation:
 
     def _build_model(self, spawn_states: list[dict]) -> None:
         self.model = mujoco.MjModel.from_xml_string(
-            self._build_scene_xml(spawn_states)
+            self._build_scene(spawn_states)
         )
         self.data = mujoco.MjData(self.model)
         self._collect_article_handles()
@@ -340,9 +340,9 @@ class PackagingSimulation:
         """
         cfg = self.config
         half_x, half_y = cfg.box_x / 2, cfg.box_y / 2
-        floor_top = cfg.wall_thickness
+        floor_height = cfg.wall_thickness
 
-        escaped = 0
+        escaped_articles = 0
 
         for body_id in self.article_body_ids:
             geom_start = self.model.body_geomadr[body_id]
@@ -371,11 +371,11 @@ class PackagingSimulation:
             if (
                 not -half_x <= centre[0] <= half_x
                 or not -half_y <= centre[1] <= half_y
-                or centre[2] < floor_top
+                or centre[2] < floor_height
             ):
-                escaped += 1
+                escaped_articles += 1
 
-        return escaped
+        return escaped_articles
 
     def _plan_spawn_positions(self) -> list[dict]:
         """Wuerfelt Positionen und Rotationen VOR dem Modellbau aus.
@@ -432,7 +432,7 @@ class PackagingSimulation:
         cols_y = max(1, int((2 * uy) // cell))
         return cols_x, cols_y, ux, uy
 
-    def _get_spawn_wall_height(self) -> float:
+    def _get_wall_height(self) -> float:
         """Die Kollisionswaende muessen bis ueber den hoechsten Spawn reichen."""
         cfg = self.config
         cols_x, cols_y, _, _ = self._spawn_grid()
@@ -445,8 +445,8 @@ class PackagingSimulation:
         cfg = self.config
         scale = np.array(cfg.mesh_scale)
 
-        if cfg.collision_file:
-            data = np.load(cfg.collision_file)
+        if cfg.vhacd_file:
+            data = np.load(cfg.vhacd_file)
             parts = [data[k] for k in sorted(data.files)]
         else:
             mesh = trimesh.load(str(cfg.stl_file), force="mesh")
@@ -454,26 +454,20 @@ class PackagingSimulation:
 
         return [part * scale for part in parts]
 
-    def _build_scene_xml(self, spawn_states: list[dict]) -> str:
+    def _build_scene(self, spawn_states: list[dict]) -> str:
         cfg = self.config
 
-        wall_height = max(cfg.box_z, self._get_spawn_wall_height())
+        wall_height = max(cfg.box_z, self._get_wall_height())
         visual_height = cfg.box_z
-        floor_top = cfg.wall_thickness
+        floor_height = cfg.wall_thickness
         wall_floor_overlap = 0.1
-        wall_center_z = floor_top + wall_height / 2 - wall_floor_overlap
-        visual_center_z = floor_top + visual_height / 2
+        wall_center_z = floor_height + wall_height / 2 - wall_floor_overlap
+        visual_center_z = floor_height + visual_height / 2
 
         friction = (
             f'condim="6" '
             f'friction="{object_friction} {spinning_friction} {rolling_friction}"'
         )
-
-         # Zusätzliche äußere Sicherheitswand gegen Tunneling durch die Primärwand
-        safety_wall_gap = 0.0035
-        safety_wall_thickness = max(cfg.wall_thickness, 0.004)
-        safety_half_t = safety_wall_thickness / 2
-
 
         stl_path = str(Path(cfg.stl_file).resolve()).replace("\\", "/")
 
@@ -534,7 +528,7 @@ class PackagingSimulation:
 
         gap = 0.001
         lid = f'''
-      <body name="lid" mocap="true" pos="0 0 {floor_top + wall_height + 0.1:.6g}">
+      <body name="lid" mocap="true" pos="0 0 {floor_height + wall_height + 0.1:.6g}">
         <geom name="lid_geom" type="box"
               size="{half_x - gap:.6g} {half_y - gap:.6g} {half_t:.6g}"
               {friction} rgba="0.9 0.55 0.2 0.45"/>
@@ -566,7 +560,7 @@ class PackagingSimulation:
 
     def _collect_article_handles(self) -> None:
         self.article_body_ids = []
-        self._article_geom_vertices = []
+        self._article_mesh_vertices = []
 
         for i in range(self.config.item_quantity):
             body_id = mujoco.mj_name2id(
@@ -586,7 +580,7 @@ class PackagingSimulation:
                 vertices = self.model.mesh_vert[
                     vert_start:vert_start + vert_count
                 ].copy()
-                self._article_geom_vertices.append((geom_id, vertices))
+                self._article_mesh_vertices.append((geom_id, vertices))
 
     #
     # Simulation: fallen -> verdichten -> ausruhen
@@ -630,19 +624,19 @@ class PackagingSimulation:
 
         if not cfg.use_gui:
             filling_height = max(0.0, self._current_max_z() - cfg.wall_thickness)
-            if filling_height > cfg.box_z * cfg.early_validation_factor:
+            if filling_height > cfg.box_z * cfg.early_cancel_value:
                 return
 
                 # Deckel und Kennwerte einmal vorbereiten
         lid_body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "lid")
         mocap_id = self.model.body_mocapid[lid_body]
         half_t = cfg.wall_thickness / 2
-        rim_z = cfg.wall_thickness + cfg.box_z + half_t
+        box_height = cfg.wall_thickness + cfg.box_z + half_t
 
         # Phase 2: Deckel auflegen, dann verdichten.
         # Der Deckel sitzt auf Randhoehe -- steht die Schuettung hoeher, legt er
         # sich auf sie auf. So kann waehrend des Ruettelns nichts herausspringen.
-        lid_z = max(rim_z, self._current_max_z() + half_t + 0.0001)
+        lid_z = max(box_height, self._current_max_z() + half_t + 0.0001)
         self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
 
         self.model.opt.gravity[2] = pressing_gravity
@@ -666,17 +660,17 @@ class PackagingSimulation:
         # spaeteren Absetzen nur zusammengedrueckt zu werden.
         lid_speed = 0.03     # m/s, Absetzen in Phase 3
 
-        rim_z = cfg.wall_thickness + cfg.box_z + half_t
-        sweep_z = self._current_max_z() + half_t + 0.0001
+        box_height = cfg.wall_thickness + cfg.box_z + half_t
+        lid_z = self._current_max_z() + half_t + 0.0001
 
-        if sweep_z > rim_z:
-            self.data.mocap_pos[mocap_id] = (0.0, 0.0, sweep_z)
-            sweep_steps = int((sweep_z - rim_z) / (lid_speed * cfg.fixed_time_step))
+        if lid_z > box_height:
+            self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
+            sweep_steps = int((lid_z - box_height) / (lid_speed * cfg.fixed_time_step))
 
 
             for _ in range(sweep_steps):
-                sweep_z -= lid_speed * cfg.fixed_time_step
-                self.data.mocap_pos[mocap_id, 2] = sweep_z
+                lid_z -= lid_speed * cfg.fixed_time_step
+                self.data.mocap_pos[mocap_id, 2] = lid_z
                 self._step()
                 if self._aborted:
                     break
@@ -686,7 +680,7 @@ class PackagingSimulation:
                 force_scale=0.1,
                 frequency=cfg.settle_frequency,
             )
-            self.data.mocap_pos[mocap_id, 2] = rim_z + lid_speed*2  # Deckel wieder hoch
+            self.data.mocap_pos[mocap_id, 2] = box_height + lid_speed*2  # Deckel wieder hoch
 
         lid_z = self._current_max_z() + half_t + 0.0001
         self.data.mocap_pos[mocap_id] = (0.0, 0.0, lid_z)
@@ -705,14 +699,14 @@ class PackagingSimulation:
             if abs(self.data.cfrc_ext[lid_body, 5]) > 10.0:
                 break
 
-        self._lid_bottom_z = lid_z - half_t
+        self._lid_pos = lid_z - half_t
 
 
     def _current_max_z(self) -> float:
         """Oberkante der Schuettung ueber die transformierten Vertices aller
         Kollisionsteile."""
         max_z = 0.0
-        for geom_id, vertices in self._article_geom_vertices:
+        for geom_id, vertices in self._article_mesh_vertices:
             rotation = self.data.geom_xmat[geom_id].reshape(3, 3)
             top = float(
                 (vertices @ rotation[2, :]).max() + self.data.geom_xpos[geom_id][2]
@@ -781,8 +775,8 @@ class PackagingSimulation:
         # abgesetzten Deckels -- ausser die Simulation brach vorher ab.
         settled_height = self._current_max_z() - cfg.wall_thickness
         filling_height = (
-            self._lid_bottom_z - cfg.wall_thickness
-            if self._lid_bottom_z is not None
+            self._lid_pos - cfg.wall_thickness
+            if self._lid_pos is not None
             else settled_height
         )
 

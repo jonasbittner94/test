@@ -6,14 +6,14 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from app.core.config import CONVERTED_DIR
+from app.core.config import convert_directory
 
 
-def resolve_converted_stl(file_url: str) -> Path:
-    filename = Path(file_url).name  # nur der Dateiname, verwirft Host/Pfad
-    path = CONVERTED_DIR / filename
+def resolve_converted_stl(stl_url: str) -> Path:
+    stl_name = Path(stl_url).name  # nur der Dateiname, verwirft Host/Pfad
+    path = convert_directory / stl_name
     if not path.is_file():
-        raise FileNotFoundError(f"STL-Datei nicht gefunden: {filename}")
+        raise FileNotFoundError(f"STL-Datei nicht gefunden: {stl_name}")
     return path
 
 
@@ -71,7 +71,7 @@ def ensure_vhacd_collision_mesh(stl_path: str | Path) -> Path:
 
 
 # Berechnung des Volumens der konvexen Hülle des Meshes (wie im Frontend).
-def compute_scaled_volume_mm3(
+def compute_convex_volume(
     stl_file: str | Path, scaled_length: float | None = None
 ) -> float:
     """Volumen wie im Frontend (konvexe Hülle), in mm^3.

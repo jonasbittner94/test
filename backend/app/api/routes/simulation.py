@@ -11,10 +11,10 @@ from app.simulation.sim_mujoco import (
 from app.packing.models import Box
 from app.packing.box_loader import load_boxes_from_csv
 from app.packing.lhm import get_lhm_capacity
-from app.core.config import BOXES_CSV
+from app.core.config import boxes_data
 from dataclasses import replace
 from app.geometry import (
-    compute_scaled_volume_mm3,
+    compute_convex_volume,
     ensure_vhacd_collision_mesh,
     resolve_converted_stl,
 )
@@ -46,8 +46,8 @@ def run_simulation(config: SimulationConfig):
         raise HTTPException(status_code=404, detail=str(error))
 
     # config.item.length ist bereits die (ggf. skalierte) Ziel-Länge -> entspricht
-    # scaled_length im Frontend; damit skaliert compute_scaled_volume_mm3 das Volumen.
-    mesh_volume = compute_scaled_volume_mm3(stl_path, config.item.length)
+    # scaled_length im Frontend; damit skaliert compute_convex_volume das Volumen.
+    mesh_volume = compute_convex_volume(stl_path, config.item.length)
     # Konvexe Zerlegung fuer formtreue Kollision (gecacht, einmalig pro STL).
     collision_path = ensure_vhacd_collision_mesh(stl_path)
 
@@ -55,19 +55,19 @@ def run_simulation(config: SimulationConfig):
         config,
         mesh_volume=mesh_volume,
         stl_file=str(stl_path),
-        collision_file=str(collision_path),
+        vhacd_file=str(collision_path),
     )
 
-    estimated_packing_density = estimate_bulk_packing_density(reference_config)
+    expected_fillrate = estimate_bulk_packing_density(reference_config)
 
 
     boxes = load_boxes_from_csv(
-        str(BOXES_CSV),
+        str(boxes_data),
         config.item_quantity,
         bulk=True,
         mesh_volume=mesh_volume,
         stability=config.stability,
-        estimated_packing_density=estimated_packing_density,
+        expected_fillrate=expected_fillrate,
     )
 
     print("mögliche Verpackungen", boxes)
@@ -77,7 +77,7 @@ def run_simulation(config: SimulationConfig):
         boxes=boxes,
         mesh_volume=mesh_volume,
         stl_file=str(stl_path),
-        collision_file=str(collision_path),
+        vhacd_file=str(collision_path),
     )
 
     try:
@@ -92,7 +92,7 @@ def run_simulation(config: SimulationConfig):
     
 
 @router.post("/run-single-box")
-def run_single_box_simulation(request: SingleBoxSimulationRequest):
+def run_single_box(request: SingleBoxSimulationRequest):
     config = request.config
     requested_box = request.box
 
@@ -101,7 +101,7 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error))
 
-    mesh_volume = compute_scaled_volume_mm3(stl_path, config.item.length)
+    mesh_volume = compute_convex_volume(stl_path, config.item.length)
     collision_path = ensure_vhacd_collision_mesh(stl_path)
 
     selected_box = Box(
@@ -120,7 +120,7 @@ def run_single_box_simulation(request: SingleBoxSimulationRequest):
         boxes=[selected_box],
         mesh_volume=mesh_volume,
         stl_file=str(stl_path),
-        collision_file=str(collision_path),
+        vhacd_file=str(collision_path),
         parallel_simulations=False,
         use_gui=True,
         # Genau ein Lauf mit dem gespeicherten Seed -> reproduziert die Schuettung,

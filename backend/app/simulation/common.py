@@ -24,7 +24,7 @@ class SimulationConfig:
     mesh_volume: float = 0.0
     stl_file: str = "ausgabe.stl"
     stability: str | None = None
-    collision_file: Optional[str] = None
+    vhacd_file: Optional[str] = None
 
     item_mass: float = 0.01
 
@@ -41,7 +41,7 @@ class SimulationConfig:
     min_simulation_steps: int = 100
 
     # Sofortiger Abbruch, wenn die Fuellhoehe nach dem Einfuellen zu hoch ist
-    early_validation_factor: float = 2
+    early_cancel_value: float = 2
 
     # Verdichtung durch Ruetteln der Artikel
     settle_duration: float = 1
@@ -87,7 +87,7 @@ def _get_best_valid_results(simulation_results: list[dict]) -> list[dict]:
     return valid_results
 
 
-def _get_single_article_volume_m3(config: SimulationConfig) -> float:
+def _get_single_article_volume(config: SimulationConfig) -> float:
     if config.mesh_volume > 0:
         return config.mesh_volume * 1e-9
     return (
@@ -101,11 +101,11 @@ def _build_dynamic_reference_boxes(config: SimulationConfig) -> list[Box]:
     """Drei Referenzboxen unterschiedlicher Grundflaeche, in denen die
     Schuettdichte des Artikels gemessen wird."""
     total_article_volume = (
-        _get_single_article_volume_m3(config) * config.item_quantity
+        _get_single_article_volume(config) * config.item_quantity
     )
 
     # konservative Annahme fuer lockere Schuettung
-    estimated_bulk_volume = total_article_volume / 0.30
+    expected_bulk_volume = total_article_volume / 0.30
 
     boxes: list[Box] = []
     for name, length_m, width_m in (
@@ -114,7 +114,7 @@ def _build_dynamic_reference_boxes(config: SimulationConfig) -> list[Box]:
         ("ref_large", 0.28, 0.20),
     ):
         # Sicherheitsaufschlag und Begrenzung
-        height_m = estimated_bulk_volume / (length_m * width_m) * 1.15
+        height_m = expected_bulk_volume / (length_m * width_m) * 1.15
         height_m = max(0.12, min(height_m, 1.2))
 
         boxes.append(

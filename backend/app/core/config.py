@@ -4,18 +4,18 @@ import os
 from pathlib import Path
 
 # backend
-BASE_DIR = Path(__file__).resolve().parents[2]
+base_directory = Path(__file__).resolve().parents[2]
 
-DATA_DIR = BASE_DIR / "data"
-STORAGE_DIR = BASE_DIR / "storage"
-UPLOAD_DIR = STORAGE_DIR / "uploads"
-CONVERTED_DIR = STORAGE_DIR / "converted"
+data_directory = base_directory / "data"
+storage_directory = base_directory / "storage"
+upload_directory = storage_directory / "uploads"
+convert_directory = storage_directory / "converted"
 
 # Standard-CSV mit den verfuegbaren Faltschachteln/Verpackungen
-BOXES_CSV = DATA_DIR / "meine_datei.csv"
+boxes_data = data_directory / "Verpackungskatalog.csv"
 
-FRONTEND_ORIGINS = [
+allowed_origins = [
     origin.strip()
-    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+    for origin in os.getenv("allowed_origins", "http://localhost:3000").split(",")
     if origin.strip()
 ]

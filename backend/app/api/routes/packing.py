@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException
 from app.packing.models import Item
 from app.packing.optimizer import PackingOptimizer
 from app.packing.box_loader import load_boxes_from_csv
-from app.core.config import BOXES_CSV
-from app.geometry import compute_scaled_volume_mm3, resolve_converted_stl
+from app.core.config import boxes_data
+from app.geometry import compute_convex_volume, resolve_converted_stl
 
 
 class Vec3(BaseModel):
@@ -16,15 +16,15 @@ class Vec3(BaseModel):
     z: float
 
 
-class PatternElementRequest(BaseModel):
+class GridElementRequest(BaseModel):
     index: int
     position: Vec3
     rotation: Vec3
     size: Vec3
 
 
-class PatternRequest(BaseModel):
-    elements: List[PatternElementRequest]
+class GridRequest(BaseModel):
+    elements: List[GridElementRequest]
 
 
 class PackingRequest(BaseModel):
@@ -33,7 +33,7 @@ class PackingRequest(BaseModel):
     file_url: str
     quantity: int
     scaledLength: float
-    pattern: Optional[PatternRequest] = None
+    pattern: Optional[GridRequest] = None
     stability: str
     fill_residual: bool = True
 
@@ -42,7 +42,7 @@ router = APIRouter()
 
 
 @router.post("/packing/top20")
-def get_top_20_packing_results(data: PackingRequest):
+def get_top_50_packing_results(data: PackingRequest):
     try:
         stl_path = resolve_converted_stl(data.file_url)
     except FileNotFoundError as error:
@@ -56,16 +56,16 @@ def get_top_20_packing_results(data: PackingRequest):
         ),
         quantity=data.quantity,
         #Patternobject in dict umwandeln
-        pattern=data.pattern.model_dump() if data.pattern else None,
-        mesh_volume=compute_scaled_volume_mm3(stl_path, data.scaledLength),
-        fill_residual=data.fill_residual,
+        packing_grid=data.pattern.model_dump() if data.pattern else None,
+        mesh_volume=compute_convex_volume(stl_path, data.scaledLength),
+        fill_res=data.fill_residual,
     )
 
     #Bei starker Überlappung wird das Volumen kleiner, deshalb wird dann die Überlappung
     #vom Boundingboxvolumen abgezogen und damit die Boxen gefiltert
     optimizer.mesh_volume = optimizer.effective_article_volume()
     optimizer.boxes = load_boxes_from_csv(
-        str(BOXES_CSV),
+        str(boxes_data),
         data.quantity,
         bulk=False,
         mesh_volume=optimizer.mesh_volume,

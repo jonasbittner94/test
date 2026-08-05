@@ -28,14 +28,14 @@ def _box_from_row(row) -> Box:
     return box
 
 
-def _load_pattern_boxes(rows, total_article_volume: float, stability: str) -> list[Box]:
+def _load_pattern_boxes(rows, article_volume_sum: float, stability: str) -> list[Box]:
     """packmuster-pfad: nur boxen, in die die artikel volumenmaessig passen."""
     boxes: list[Box] = []
     for row in rows:
         if not _matches_stability(row, stability):
             continue
         box = _box_from_row(row)
-        if total_article_volume <= box.volume:
+        if article_volume_sum <= box.volume:
             boxes.append(box)
     return boxes
 
@@ -45,9 +45,9 @@ def _clamp(value: float, lower: float, upper: float) -> float:
 
 def _load_bulk_boxes(
     rows,
-    total_article_volume: float,
+    article_volume_sum: float,
     stability: str,
-    estimated_packing_density: float | None,
+    expected_fillrate: float | None,
 ) -> list[Box]:
     """
     Schuettgut-Pfad: robuste Vorfilterung.
@@ -61,10 +61,10 @@ def _load_bulk_boxes(
 
     # Fallback/Clamp verhindert, dass eine schlechte Simulation die Vorfilterung
     # komplett leer macht.
-    if estimated_packing_density is None or estimated_packing_density <= 0:
-        packing_density = 0.4
+    if expected_fillrate is None or expected_fillrate <= 0:
+        fillrate = 0.4
     else:
-        packing_density = _clamp(estimated_packing_density, 0.40, 0.80)
+        fillrate = _clamp(expected_fillrate, 0.40, 0.80)
 
     fitting_boxes: list[tuple[float, Box]] = []
     fallback_boxes: list[tuple[float, Box]] = []
@@ -78,16 +78,16 @@ def _load_bulk_boxes(
         if box.volume <= 0:
             continue
 
-        required_density = total_article_volume / box.volume
+        required_density = article_volume_sum / box.volume
 
-        # overflow_ratio <= 1 bedeutet:
+        # fitting_ratio <= 1 bedeutet:
         # Box ist nach konservativer Packdichte gross genug.
-        overflow_ratio = required_density / packing_density
+        fitting_ratio = required_density / fillrate
 
-        if overflow_ratio <= 1.0:
-            fitting_boxes.append((overflow_ratio, box))
+        if fitting_ratio <= 1.0:
+            fitting_boxes.append((fitting_ratio, box))
         else:
-            fallback_boxes.append((overflow_ratio, box))
+            fallback_boxes.append((fitting_ratio, box))
 
     if fitting_boxes:
         # Bevorzugt Boxen, die passen, aber nicht riesig ueberdimensioniert sind.
@@ -114,42 +114,42 @@ def _load_bulk_boxes(
 def _unique_boxes_by_dimensions(boxes: list[Box]) -> list[Box]:
     """Entfernt Boxen mit identischen Abmessungen, unabhaengig von L/W-Reihenfolge."""
     unique: list[Box] = []
-    seen_dimensions: set[tuple[float, float, float]] = set()
+    existing_dims: set[tuple[float, float, float]] = set()
 
     for box in boxes:
         base_a, base_b = sorted((box.length, box.width), reverse=True)
         dimensions = (base_a, base_b, box.height)
 
-        if dimensions in seen_dimensions:
+        if dimensions in existing_dims:
             continue
 
-        seen_dimensions.add(dimensions)
+        existing_dims.add(dimensions)
         unique.append(box)
 
     return unique
 
 
 def load_boxes_from_csv(
-    csv_path: str,
+    box_data_path: str,
     quantity: int,
     bulk: bool,
     mesh_volume: float,
     stability: str,
-    estimated_packing_density: float | None = None,
+    expected_fillrate: float | None = None,
 ) -> list[Box]:
-    path = Path(csv_path)
+    path = Path(box_data_path)
 
     # gesamtvolumen aller artikel einer vpe -> grober vorfilter fuer die boxen
-    total_article_volume = mesh_volume * quantity
+    article_volume_sum = mesh_volume * quantity
 
-    with path.open(newline="", encoding="utf-8") as csvfile:
-        rows = list(csv.DictReader(csvfile))
+    with path.open(newline="", encoding="utf-8") as box_data:
+        rows = list(csv.DictReader(box_data))
 
     if bulk:
-        boxes = _load_bulk_boxes(rows, total_article_volume, stability, estimated_packing_density)
+        boxes = _load_bulk_boxes(rows, article_volume_sum, stability, expected_fillrate)
         limit = 10
     else:
-        boxes = _load_pattern_boxes(rows, total_article_volume, stability)
+        boxes = _load_pattern_boxes(rows, article_volume_sum, stability)
         limit = 200
 
     boxes = _unique_boxes_by_dimensions(boxes)

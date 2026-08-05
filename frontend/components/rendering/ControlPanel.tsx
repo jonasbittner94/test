@@ -62,10 +62,10 @@ function Slider({ label, value, onChange, min, max, step = 1 / 2 }: SliderProps)
 
 export type ControlPanelProps = {
   spacingX: number;
-  spacingY: number;
+  spacingZ: number;
   layerGap: number;
   onSpacingXChange: (v: number) => void;
-  onSpacingYChange: (v: number) => void;
+  onSpacingZChange: (v: number) => void;
   onLayerGapChange: (v: number) => void;
   rotationMode: RotationMode;
   onRotationModeChange: (mode: RotationMode) => void;
@@ -77,10 +77,10 @@ export type ControlPanelProps = {
 
 export function ControlPanel({
   spacingX,
-  spacingY,
+  spacingZ,
   layerGap,
   onSpacingXChange,
-  onSpacingYChange,
+  onSpacingZChange,
   onLayerGapChange,
   rotationMode,
   onRotationModeChange,
@@ -114,9 +114,9 @@ export function ControlPanel({
         max={200}
       />
       <Slider
-        label="Abstand Y (− = Überlappung)"
-        value={spacingY}
-        onChange={onSpacingYChange}
+        label="Abstand Z (− = Überlappung)"
+        value={spacingZ}
+        onChange={onSpacingZChange}
         min={-100}
         max={200}
       />

@@ -5,15 +5,15 @@ import shutil
 import trimesh
 
 
-from app.services.converterStpStl.converter import step_to_stl_cq
-from app.core.config import UPLOAD_DIR, CONVERTED_DIR
+from app.services.converterStpStl.converter import convert_to_stl
+from app.core.config import upload_directory, convert_directory
 
 
 
 router = APIRouter()
 
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-CONVERTED_DIR.mkdir(parents=True, exist_ok=True)
+upload_directory.mkdir(parents=True, exist_ok=True)
+convert_directory.mkdir(parents=True, exist_ok=True)
 
 def get_item_from_stl(stl_path: Path) -> dict:
     mesh = trimesh.load_mesh(str(stl_path))
@@ -41,14 +41,14 @@ async def convert_stp_to_stl(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Nur .stp-Dateien sind erlaubt.")
 
     file_id = uuid4().hex
-    input_path = UPLOAD_DIR / f"{file_id}.stp"
-    output_path = CONVERTED_DIR / f"{file_id}.stl"
+    input_path = upload_directory / f"{file_id}.stp"
+    output_path = convert_directory / f"{file_id}.stl"
 
     try:
         with input_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        step_to_stl_cq(str(input_path), str(output_path))
+        convert_to_stl(str(input_path), str(output_path))
         item = get_item_from_stl(output_path)
 
 
@@ -74,7 +74,7 @@ async def upload_stl(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Nur .stl-Dateien sind erlaubt.")
 
     file_id = uuid4().hex
-    output_path = CONVERTED_DIR / f"{file_id}.stl"
+    output_path = convert_directory / f"{file_id}.stl"
 
     try:
         with output_path.open("wb") as buffer:

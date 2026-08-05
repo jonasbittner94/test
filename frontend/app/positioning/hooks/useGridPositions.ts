@@ -4,7 +4,7 @@ type Params = {
   gridSize: number;
   layers: number;
   spacingX: number;
-  spacingY: number;
+  spacingZ: number;
   layerGap: number;
 };
 
@@ -12,7 +12,7 @@ export function useGridPositions({
   gridSize,
   layers,
   spacingX,
-  spacingY,
+  spacingZ,
   layerGap,
 }: Params): [number, number, number][] {
   return useMemo(() => {
@@ -22,7 +22,7 @@ export function useGridPositions({
       for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
           const x = (i - (gridSize - 1) / 2) * spacingX;
-          const z = (j - (gridSize - 1) / 2) * spacingY;
+          const z = (j - (gridSize - 1) / 2) * spacingZ;
           const y = (l - (layers - 1) / 2) * layerGap;
 
           pos.push([x, y, z]);
@@ -31,5 +31,5 @@ export function useGridPositions({
     }
 
     return pos;
-  }, [gridSize, layers, spacingX, spacingY, layerGap]);
+  }, [gridSize, layers, spacingX, spacingZ, layerGap]);
 }

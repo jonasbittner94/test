@@ -33,7 +33,7 @@ function RenderingContent() {
   // Slider-Werte = Abstand (Luecke) zwischen den Artikel-Bounding-Boxes.
   // 0 = buendig aneinander, negativ = bewusste Ueberlappung.
   const [spacingX, setSpacingX] = useState(getNumberParam(sp, "spacingX", 0));
-  const [spacingY, setSpacingY] = useState(getNumberParam(sp, "spacingY", 0));
+  const [spacingZ, setSpacingZ] = useState(getNumberParam(sp, "spacingZ", 0));
   const [layerGap, setLayerGap] = useState(getNumberParam(sp, "layergap", 0));
   const [rotationMode, setRotationMode] = useState<RotationMode>("right");
   const [resetKey, setResetKey] = useState(0);
@@ -45,13 +45,13 @@ function RenderingContent() {
 
   // Artikelgroesse pro Achse (aus der geladenen STL-Bounding-Box), Fallback vor dem Laden.
   // useGridPositions erwartet Mitte-zu-Mitte-Abstaende => Artikelkante + gewuenschter Abstand.
-  // Achsen-Zuordnung: spacingX->x, spacingY->z, layerGap->y (siehe useGridPositions).
+  // Achsen-Zuordnung: spacingX->x, spacingZ->z, layerGap->y (siehe useGridPositions).
   const [artX, artY, artZ] = boundingBox ?? [50, 50, 50];
   const basePositions = useGridPositions({
     gridSize: GRID_SIZE,
     layers: LAYERS,
     spacingX: artX + spacingX,
-    spacingY: artZ + spacingY,
+    spacingZ: artZ + spacingZ,
     layerGap: artY + layerGap,
   });
 
@@ -73,7 +73,7 @@ function RenderingContent() {
 
   const [scenePositions, setScenePositions] = useState(basePositions);
 
-  const hasNegativeSpacing = spacingX < 0 || spacingY < 0 || layerGap < 0;
+  const hasNegativeSpacing = spacingX < 0 || spacingZ < 0 || layerGap < 0;
   const hasScaledLength = scaledLength !== undefined && scaledLength > 0;
 
   const [rotationsZ, setRotationsZ] = useState<number[]>(() =>
@@ -239,7 +239,7 @@ function RenderingContent() {
 
   const resetPosition = () => {
     setSpacingX(0);
-    setSpacingY(0);
+    setSpacingZ(0);
     setLayerGap(0);
     setScenePositions(basePositions);
     setRotationsX(new Array(basePositions.length).fill(0));
@@ -260,10 +260,10 @@ function RenderingContent() {
     >
       <ControlPanel
         spacingX={spacingX}
-        spacingY={spacingY}
+        spacingZ={spacingZ}
         layerGap={layerGap}
         onSpacingXChange={setSpacingX}
-        onSpacingYChange={setSpacingY}
+        onSpacingZChange={setSpacingZ}
         onLayerGapChange={setLayerGap}
         onRotateZ={handleRotateZ}
         onRotateX={handleRotateX}

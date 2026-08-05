@@ -31,7 +31,8 @@ pandas==3.0.3
 pillow==12.3.0
 propcache==0.5.2
 # nur als VHACD-Werkzeug in app/geometry.py, nicht als Physik-Engine
-vhacdx==0.0.10pydantic==2.13.4
+vhacdx==0.0.10
+pydantic==2.13.4
 pydantic_core==2.46.4
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
